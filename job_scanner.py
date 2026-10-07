@@ -490,12 +490,144 @@ def eightfold(spec, sess, lane=None, **_):
     return rows, (f"eightfold {host}: {len(rows)} jobs ({of}), {n} home or remote rows read from position_details"
                   + failed_reads(rows) + bound)
 
+WD_PLACE_FACET = re.compile(r"location|distance|country|region|state|city", re.I)
+WD_SPLIT_ROWS = 6000      # once the split's queries have returned this many postings, it asks no further query
+
+
+def _wd_row(p, tenant, shard, site):
+    return dict(req=p.get("bulletFields", [""])[0] if p.get("bulletFields") else "",
+                title=p.get("title", ""), location=p.get("locationsText", ""),
+                text="", url=f"https://{tenant}.{shard}.myworkdayjobs.com"
+                            f"/{site}{p.get('externalPath','')}",
+                posted=p.get("postedOn", ""), _path=p.get("externalPath", ""))
+
+
+def _wd_flat(facet):
+    """[(value id, count)] for a facet whose values are one flat list; [] for a nested or odd one."""
+    vals = facet.get("values") if isinstance(facet, dict) else None
+    if not isinstance(vals, list): return []
+    out = []
+    for v in vals:
+        if not isinstance(v, dict) or "values" in v or not v.get("id"): return []
+        try: out.append((v["id"], int(v.get("count") or 0)))
+        except (TypeError, ValueError): return []
+    return out
+
+
+def _wd_pick(facets, applied):
+    """The facet to split a capped query by, and the largest sum any usable facet's counts reach.
+    Usable: flat, not a place facet, not applied already. A response does not say whether a facet
+    covers the whole list (a posting may have no value for it). Of the facets with two values or
+    more (a value counted zero is a value) whose counts add up to 2,000 or more, the one that adds
+    up to the most is taken; of two with the same sum, the one whose largest value is smaller, so
+    that fewer slices come back capped.
+    Returns (name, values, largest sum seen)."""
+    best, most = None, 0
+    for f in facets if isinstance(facets, list) else []:
+        name = f.get("facetParameter") if isinstance(f, dict) else None
+        if not isinstance(name, str) or not name or name in applied or WD_PLACE_FACET.search(name): continue
+        vals = _wd_flat(f)
+        if not vals: continue
+        total = sum(c for _, c in vals)
+        most = max(most, total)
+        if len(vals) < 2 or total < 2000: continue
+        key = (-total, max(c for _, c in vals))
+        if best is None or key < best[0]: best = (key, name, vals)
+    return (best[1], best[2], most) if best else ("", [], most)
+
+
+def _wd_pages(url, sess, applied):
+    """Every page of one filtered query, to 2,000 postings at most: (postings, the first page's
+    total, its facets, a stop). A refused page, a body that is not JSON and a dropped connection
+    each end the query with what it has and a stop that says so."""
+    posts, offset, total, facets = [], 0, None, []
+    while True:
+        try:
+            r = sess.post(url, json={"appliedFacets": applied, "limit": 20, "offset": offset, "searchText": ""},
+                          headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
+            if r.status_code != 200: return posts, total, facets, f"HTTP {r.status_code} at offset={offset}"
+            d = r.json()
+        except Exception as e:
+            return posts, total, facets, f"{type(e).__name__} at offset={offset}"
+        if not isinstance(d, dict): return posts, total, facets, f"not a JSON object at offset={offset}"
+        if not offset: total, facets = d.get("total"), d.get("facets") or []
+        page = d.get("jobPostings") or []
+        if not page: break
+        posts += page; offset += 20
+        if offset >= 2000 or (isinstance(total, int) and offset >= total): break
+        time.sleep(PAUSE)
+    return posts, total, facets, ""
+
+
+def _workday_split(url, sess, facets, seen, applied=None, depth=0, state=None):
+    """Postings that a capped query did not list. The query is asked again once per value of one
+    facet; a value that comes back capped is split once more, by a second facet, and no deeper.
+    A slice that is refused or fails ends the split: what it returned is kept, and no further
+    query is sent at either level.
+    `seen` holds the externalPath of every posting listed so far and is added to. Returns
+    (new postings, {"facet", "expected", "queries", "problems"})."""
+    applied = applied or {}
+    state = state if state is not None else {"queries": 0, "listed": 0}
+    name, vals, most = _wd_pick(facets, applied)
+    info = {"facet": name, "expected": sum(c for _, c in vals), "queries": 0, "problems": []}
+    if not name:
+        info["problems"].append("no facet to split by" + (" inside a capped slice" if applied else ""))
+        return [], info
+    if most > info["expected"]:
+        info["problems"].append(f"another facet counts {most}")
+    new = []
+    for vid, count in sorted(vals, key=lambda v: -v[1]):
+        if not count: continue
+        if state["listed"] >= WD_SPLIT_ROWS:
+            info["problems"].append(f"the split asked no further query after {state['listed']} postings returned"); break
+        time.sleep(PAUSE)
+        sub = dict(applied, **{name: [vid]})
+        posts, total, sub_facets, stop = _wd_pages(url, sess, sub)
+        state["queries"] += 1; state["listed"] += len(posts)
+        if stop: info["problems"].append(f"a slice stopped: {stop}")
+        if stop: state["halted"] = True       # a refused or failed slice ends the split
+        for p in posts:
+            path = p.get("externalPath") if isinstance(p, dict) else None
+            if path and path not in seen:
+                seen.add(path); new.append(p)
+        if total == 2000 and not stop:
+            if depth == 0:
+                more, deeper = _workday_split(url, sess, sub_facets, seen, sub, 1, state)
+                new += more; info["problems"] += deeper["problems"]
+            else:
+                info["problems"].append("a slice of two facets is capped as well")
+        if state.get("halted"): break
+    info["queries"] = state["queries"]
+    return new, info
+
+
+def _wd_cap_note(split, n):
+    """The flag for a tenant that reported exactly 2,000: what the split read, or that the list is
+    longer (with the reason, when the split looked for a facet and found none). `n` is the number
+    of distinct postings held. A posting that has no value for the facet is in no slice, so the
+    flag gives both numbers and never calls the list complete."""
+    base = "  <-- CAPPED: a total of exactly 2,000 means the tenant caps a query"
+    if not split or not split["facet"]:
+        why = f" ({split['problems'][0]})" if split and split["problems"] else ""
+        return base + "; the list is longer." + why
+    said = (f"; asked again once per {split['facet']} value ({split['queries']} queries): "
+            f"{n} postings, {split['expected']} counted by that facet")
+    why = list(dict.fromkeys(split["problems"]))
+    if n < split["expected"]: why.append("fewer postings than the facet counts")
+    if n > split["expected"]: why.append("more postings than the facet counts, so it does not cover the list")
+    if why: return base + said + "; the list may still be longer (" + "; ".join(why) + ")."
+    return base + said + "."
+
+
 def workday(spec, sess, lane=None, cap=400, **_):
     """POST only: GET returns 400, and so does a limit above 20 (both measured on one tenant, 3 Oct 2026).
     spec = 'tenant|wd5|SiteName'. The list carries no description, so no band and no clearance: with --lane,
     lane-titled rows get GET {cxs}/{site}{externalPath} -> jobPostingInfo (description, location,
     additionalLocations). A row whose detail was not read is marked `unread` and never passes
-    keep(): without that mark every unread row passed as "no band"."""
+    keep(): without that mark every unread row passed as "no band". A tenant answers at most 2,000
+    postings to one query: when the first page reports exactly 2,000 and no page of the list
+    failed, the query is asked again once per value of one facet (_workday_split), and the note
+    gives the postings then held beside that facet's count."""
     tenant, shard, site = spec.split("|")
     url = f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
     # A company map may list a site name in lower case while the tenant's real site is cased
@@ -521,6 +653,7 @@ def workday(spec, sess, lane=None, cap=400, **_):
     elif first.status_code != 200 or not is_json(first):
         return [], f"workday {tenant}: site {site!r} HTTP {first.status_code}{' non-JSON' if first.status_code == 200 else ''}"
     rows, offset, total, stopped = [], 0, None, ""
+    facets, split = [], None
     time.sleep(PAUSE)
     while True:
         r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
@@ -533,17 +666,20 @@ def workday(spec, sess, lane=None, cap=400, **_):
         # Trusting it on every page is why an earlier version stopped at 40 rows. A first page with
         # no total at all means: page until a page comes back empty.
         if offset == 0: total = d.get("total")
+        if offset == 0: facets = d.get("facets") or []
         posts = d.get("jobPostings", [])
         if not posts: break
         for p in posts:
-            rows.append(dict(req=p.get("bulletFields", [""])[0] if p.get("bulletFields") else "",
-                title=p.get("title", ""), location=p.get("locationsText", ""),
-                text="", url=f"https://{tenant}.{shard}.myworkdayjobs.com"
-                            f"/{site}{p.get('externalPath','')}",
-                posted=p.get("postedOn", ""), _path=p.get("externalPath", "")))
+            rows.append(_wd_row(p, tenant, shard, site))
         offset += 20
         if (total is not None and offset >= total) or offset >= 2000: break
         time.sleep(PAUSE)
+    held = len(rows)
+    if total == 2000 and not stopped:
+        seen = {r_["_path"] for r_ in rows}
+        extra, split = _workday_split(url, sess, facets, seen)
+        rows += [_wd_row(p, tenant, shard, site) for p in extra]
+        held = len(seen)
     n = 0
     cxs = url[:-len("/jobs")]
     for row in rows:
@@ -567,7 +703,7 @@ def workday(spec, sess, lane=None, cap=400, **_):
                if lane else "no --lane, so no detail was read and no row can pass")
             + failed_reads(rows) + stopped)
     if total == 2000:      # a capped tenant reports exactly 2000 (ats-scrapers 0.3.0, workday.py)
-        note += "  <-- CAPPED: a total of exactly 2,000 means the tenant caps a query; the list is longer."
+        note += _wd_cap_note(split, held)
     elif len(rows) >= 2000 and not stopped:
         note += "  <-- STOPPED at 2,000 rows: this tool pages no further; the list is longer."
     elif total is not None and len(rows) < total and not stopped:
