@@ -1,0 +1,37 @@
+{
+  "about": "Made-up example values. Copy this file to config.json and replace every value with your own. config.json is git-ignored.",
+
+  "pay_floor": 140000,
+
+  "metro": {
+    "places": ["denver", "boulder", "aurora", "lakewood", "littleton", "colorado"],
+    "accept_remote": true
+  },
+
+  "lane_titles": ["accountant", "controller", "audit", "treasury", "\\bCPA\\b", "financial analyst"],
+
+  "clearance": {"when_active_required": "keep"},
+
+  "title_gate": {
+    "pass": ["senior", "staff", "lead"],
+    "fail": ["intern", "junior", "assistant"]
+  },
+
+  "employers": {
+    "example_greenhouse": {"ats": "greenhouse", "spec": "YOUR-BOARD-TOKEN"},
+    "example_lever":      {"ats": "lever",      "spec": "YOUR-COMPANY-SLUG"},
+    "example_ashby":      {"ats": "ashby",      "spec": "YOUR-BOARD-NAME"},
+    "example_workday":    {"ats": "workday",    "spec": "TENANT|wd5|SiteName"},
+    "example_icims":      {"ats": "icims",      "spec": "careers-yourcompany"}
+  },
+
+  "candidates": {
+    "example_phenom":  {"ats": "phenom_widget", "spec": "https://careers.example.com"},
+    "example_blocked": {"ats": "offlimits",     "spec": "robots.txt disallows the careers pages; never fetched"}
+  },
+
+  "weekly": {
+    "canary_url": "https://boards-api.greenhouse.io/v1/boards/YOUR-BOARD-TOKEN/jobs",
+    "second_pass_only": ["example_phenom"]
+  }
+}
