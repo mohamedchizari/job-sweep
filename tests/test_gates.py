@@ -404,6 +404,139 @@ def test_adapters():
         def post(self, url, json=None, **_): return Resp({"total": 2000 if json["offset"] == 0 else 0, "jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset']+i}"} for i in range(20)]})
     rows, note = js.workday("t|wd1|S", WD2k())
     check(len(rows) == 2000 and "CAPPED" in note, "workday: exactly 2,000 reported is flagged as capped")
+    check("the list is longer" in note and "no facet to split by" in note, f"workday: a capped tenant with no facets says the list is longer ({note})")
+
+    class WDsplit:
+        """A capped tenant with `n` postings. Its facets: a place facet and a nested facet (never used); two
+        whose counts add up to less than jobFamilyGroup's (workerSubType 1,300, payType 2,050); jobLevel, with
+        the same sum and a larger largest value; and jobFamilyGroup, which is used, with one value counted zero.
+        Options: `deep` gives the larger family 3,100 postings, so that slice is capped as well and is split by
+        timeType, which covers it unless `stuck`; `single` adds a one-value facet that counts 100 more; `short`
+        returns 100 postings fewer than the smaller family counts; `fail` refuses the query for the value it names;
+        `boom` drops the connection on the smaller family's query;
+        `halt` fails the third page of the first list; `thin` leaves only facets that cannot be used."""
+        def __init__(self, n=2300, **kw):
+            self.n, self.kw, self.applied, self.posts = n, kw, [], 0
+            self.big = 3100 if kw.get("deep") else 1500
+        def ids(self, ap):
+            ids, k = list(range(self.n)), self.kw
+            one = lambda name: (ap.get(name) or [None])[0]
+            if one("jobFamilyGroup") == "fam_a": ids = ids[:self.big]
+            if one("jobFamilyGroup") == "fam_b": ids = ids[self.big:self.n - 100] if k.get("short") else ids[self.big:]
+            if one("jobFamilyGroup") == "fam_none": ids = []
+            cut = 2600 if k.get("stuck") else 1600
+            if one("timeType") == "full": ids = ids[:cut]
+            if one("timeType") == "part": ids = ids[cut:]
+            if one("workerSubType") == "w_a": ids = ids[:700]
+            if one("workerSubType") == "w_b": ids = ids[700:1300]
+            if one("payType") == "p_a": ids = ids[:1050]
+            if one("payType") == "p_b": ids = ids[1050:2050]
+            if one("jobLevel") == "lv_a": ids = ids[:self.n - 100]
+            if one("jobLevel") == "lv_b": ids = ids[self.n - 100:]
+            if ap.get("jobFamily") or ap.get("locationMainGroup"): ids = []
+            return ids
+        def post(self, url, json=None, **_):
+            off, ap, k = json["offset"], json["appliedFacets"], self.kw
+            self.posts += 1
+            if off == 0 and ap: self.applied.append(ap)
+            if k.get("halt") and not ap and off == 40: return Resp({}, 502)
+            if k.get("fail") and k["fail"] in (ap.get("jobFamilyGroup") or []) + (ap.get("timeType") or []): return Resp({}, 500)
+            if k.get("boom") and ap.get("jobFamilyGroup") == ["fam_b"]: raise ConnectionError("dropped")
+            ids = self.ids(ap); shown = ids[:2000]
+            page = [{"title": f"Controller {i}", "externalPath": f"/job/Denver-CO/x_{i}", "locationsText": "Denver, CO"}
+                    for i in shown[off:off + 20]]
+            two = lambda name, a, x, b, y: {"facetParameter": name, "values": [{"id": a, "count": x}, {"id": b, "count": y}]}
+            place = two("locationMainGroup", "loc_1", 1200, "loc_2", 1100)
+            sub = two("workerSubType", "w_a", 700, "w_b", 600)
+            fam = {"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": self.big},
+                   {"id": "fam_b", "count": self.n - self.big}, {"id": "fam_none", "count": 0}]}
+            if ap.get("jobFamilyGroup"):
+                cut = 2600 if k.get("stuck") else 1600
+                facets = [two("timeType", "full", cut, "part", len(ids) - cut), fam]
+            elif k.get("thin"):
+                facets = [place, sub]
+            else:
+                nested = {"facetParameter": "jobFamily", "values": [{"id": "g_1", "count": 1150, "values": [{"id": "x", "count": 1150}]},
+                                                                    {"id": "g_2", "count": 1150, "values": [{"id": "y", "count": 1150}]}]}
+                facets = [place, nested, sub, two("payType", "p_a", 1050, "p_b", 1000),
+                          two("jobLevel", "lv_a", self.n - 100, "lv_b", 100), fam]
+                if k.get("single"): facets.append({"facetParameter": "timeType", "values": [{"id": "full", "count": self.n + 100}]})
+            return Resp({"total": len(shown) if off == 0 else 0, "jobPostings": page, "facets": facets if off == 0 else []})
+    FAM = [{"jobFamilyGroup": ["fam_a"]}, {"jobFamilyGroup": ["fam_b"]}]
+    s = WDsplit(); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2300 and len({r["_path"] for r in rows}) == 2300, f"workday: a capped list is read past 2,000 by a split on one facet ({note})")
+    check(s.applied == FAM, "workday split: the facet whose counts add up to the most is used, the smaller largest value deciding a tie; "
+          f"not a place facet, a nested one, one that counts fewer, or a value counted zero ({s.applied})")
+    check("CAPPED" in note and "once per jobFamilyGroup value (2 queries): 2300 postings, 2300 counted by that facet." in note and "longer" not in note,
+          f"workday split: the note gives the postings held beside the facet's count ({note})")
+    check(all(r.get("unread") == "YES" for r in rows) and rows[2299]["url"] == "https://t.wd1.myworkdayjobs.com/S/job/Denver-CO/x_2299",
+          "workday split: the added rows are built like the listed ones and are unread without --lane")
+    s = WDsplit(n=5000, deep=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 5000 and {"jobFamilyGroup": ["fam_a"], "timeType": ["part"]} in s.applied and "longer" not in note,
+          f"workday split: a slice that is capped as well is split by a second facet, not by the first again ({note})")
+    s = WDsplit(n=5000, deep=True, stuck=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) < 5000 and "the list may still be longer" in note and "a slice of two facets is capped as well" in note
+          and all(len(a) <= 2 for a in s.applied), f"workday split: two levels and no deeper; a slice still capped is said ({note})")
+    s = WDsplit(fail="fam_b"); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2000 and "a slice stopped: HTTP 500 at offset=0" in note and "may still be longer" in note,
+          f"workday split: a slice that is refused is reported ({note})")
+    s = WDsplit(boom=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2000 and "a slice stopped: ConnectionError at offset=0" in note,
+          f"workday split: a dropped connection in a slice keeps the rows already listed and is reported ({note})")
+    s = WDsplit(fail="fam_a"); rows, note = js.workday("t|wd1|S", s)
+    check(s.applied == FAM[:1] and "a slice stopped: HTTP 500 at offset=0" in note,
+          f"workday split: a refused slice ends the split; no further query is sent ({s.applied})")
+    s = WDsplit(n=5000, deep=True, fail="full"); rows, note = js.workday("t|wd1|S", s)
+    check(s.applied == [FAM[0], {"jobFamilyGroup": ["fam_a"], "timeType": ["full"]}] and "a slice stopped" in note,
+          f"workday split: a refused slice at the second level ends the split at both levels ({s.applied})")
+    s = WDsplit(short=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2200 and "2200 postings, 2300 counted" in note and "may still be longer (fewer postings than the facet counts)" in note,
+          f"workday split: fewer postings than the facet counts is said ({note})")
+    s = WDsplit(single=True); rows, note = js.workday("t|wd1|S", s)
+    check(s.applied == FAM and "may still be longer (another facet counts 2400)" in note,
+          f"workday split: a one-value facet is not split by, and its larger count is said ({note})")
+    s = WDsplit(thin=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2000 and s.applied == [] and "the list is longer. (no facet to split by)" in note,
+          f"workday split: counts that add up to under 2,000 are not split by ({note})")
+    s = WDsplit(halt=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 40 and s.applied == [] and "STOPPED: HTTP 502" in note and "CAPPED" in note,
+          f"workday split: no split after a page of the first list failed ({note})")
+    old = js.WD_SPLIT_ROWS; js.WD_SPLIT_ROWS = 1000
+    s = WDsplit(); rows, note = js.workday("t|wd1|S", s)
+    js.WD_SPLIT_ROWS = old
+    check(s.applied == FAM[:1] and "the split asked no further query after 1500 postings returned" in note and "may still be longer" in note,
+          f"workday split: past its bound it asks no further query, and says so ({note})")
+    class WDloose:
+        """2,600 postings. The facet counts 2,100 of them; the 500 it leaves out are among the first 2,000."""
+        def post(self, url, json=None, **_):
+            off, fam = json["offset"], (json["appliedFacets"].get("jobFamilyGroup") or [None])[0]
+            ids = list(range(2600))
+            if fam == "fam_a": ids = ids[500:1600]
+            if fam == "fam_b": ids = ids[1600:]
+            shown = ids[:2000]
+            facets = [{"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": 1100}, {"id": "fam_b", "count": 1000}]}]
+            return Resp({"total": len(shown) if off == 0 else 0, "facets": facets if off == 0 else [],
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/x_{i}"} for i in shown[off:off + 20]]})
+    rows, note = js.workday("t|wd1|S", WDloose())
+    check(len(rows) == 2600 and "2600 postings, 2100 counted" in note and "more postings than the facet counts" in note and "may still be longer" in note,
+          f"workday split: more postings than the facet counts shows it does not cover the list, and that is said ({note})")
+    class WDodd(WD2k):
+        def post(self, url, json=None, **_):
+            r = WD2k.post(self, url, json=json); r.data["facets"] = 5; return r
+    rows, note = js.workday("t|wd1|S", WDodd())
+    check(len(rows) == 2000 and "no facet to split by" in note, f"workday split: facets that are not a list are no facets, not a crash ({note})")
+    class WDendless:
+        def post(self, url, json=None, **_):
+            return Resp({"jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset'] + i}"} for i in range(20)] if json["offset"] < 2500 else []})
+    posts, total, facets, stop = js._wd_pages("u", WDendless(), {"jobFamilyGroup": ["v"]})
+    check(len(posts) == 2000 and total is None and stop == "", "workday split: one query is paged to 2,000 postings and no further")
+    sleeps, clock = [], js.time
+    js.time = type("Clock", (), {"sleep": staticmethod(sleeps.append)})
+    try:
+        s = WDsplit(); js.workday("t|wd1|S", s)
+    finally:
+        js.time = clock
+    check(s.posts > 200 and len(sleeps) == s.posts - 1, f"workday split: a pause before every POST after the first, slices included ({s.posts} POSTs, {len(sleeps)} pauses)")
     rows, note = js.workday("x|wd1|Ext", RouteSession())
     check(len(rows) == 60, f"workday: total kept from page 0, not a stop at 40 rows ({note})")
     check(all(r.get("unread") == "YES" for r in rows) and not any(passes(r) for r in rows) and "no row can pass" in note,

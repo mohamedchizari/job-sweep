@@ -135,7 +135,7 @@ With `--lane`, details are read for lane titles only; the other rows are left ou
 | `greenhouse` | The whole board in one call. | The place is the job's own location together with its offices. Pay needs one call per job. Without `--deep` it is fetched only for rows that name a home place or a remote word. A failed pay call is counted. |
 | `lever` | Paged until a short page. No total to check against. | Only a creation date: recency cannot be established. The sweep reads the description and not the posting's `lists`, where requirements often sit; the census reads both. |
 | `ashby` | One call, no total field. | Truncation cannot be detected from the response. Unlisted jobs are marked and dropped. |
-| `workday` | Paged to the total reported on the first page, or until an empty page when none is reported, and never past 2,000 rows. A total of exactly 2,000 is flagged CAPPED; a longer list, or a page that fails part-way, is flagged STOPPED; a list that ends short of its total is flagged SHORT. | No description without `--lane`: every row is then unread. |
+| `workday` | Paged to the total reported on the first page, or until an empty page when none is reported, and never past 2,000 rows a query. A total of exactly 2,000 is flagged CAPPED. Unless a page of that first list failed, the query is then asked again once per value of one facet, leaving out values counted zero. The facet is flat, is not a place facet (its parameter name holds none of location, distance, country, region, state, city), has two values or more (a value counted zero included) and counts that add up to 2,000 or more; of those, the one whose counts add up to the most, and of two with the same sum the one with the smaller largest value. A value that comes back capped is split once more by a second facet, and no deeper. Once the split's queries have returned 6,000 postings it asks no further query. The flag gives the distinct postings held beside the facet's count. It cannot show a posting that has no value for the facet and was outside the first 2,000. It says the list is longer when no facet qualifies, and that it may still be longer when the two numbers differ, another usable facet counts more, a slice is still capped, or the bound is reached. A slice that is refused or fails is named in the flag and ends the split: no further query is sent. A reported total above 2,000, or 2,000 rows with no total, is flagged STOPPED and not split; so is a page that fails part-way. A list that ends short of its total is flagged SHORT. | No description without `--lane`: every row is then unread. |
 | `icims` | Every URL in the sitemap, up to `--cap`; the cap is flagged. | Titles come from URL slugs. A refused job page is counted, and its row has no place. |
 | `eightfold` | Paged to the reported count, which the note prints, or until empty when none is reported. Stops at 5,000 rows, or on a page that fails part-way; both are flagged, and so is a list that ends short of the count. | Descriptions are read only for rows that name a home place or a remote word. |
 | `phenom_widget` | Measured against `totalHits`; sliced by category when paging under-delivers. Paging stops at 5,000 rows, flagged. | Marked INCOMPLETE under 90 percent of the total. |
@@ -171,10 +171,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 371 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 391 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 277 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 304 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -182,6 +182,7 @@ fail every time, once by not finishing (without the Avature page bound its test 
 The list was chosen by hand, and a rule outside it can still be untested. Gaps that are known:
 the census's `--show` printing, the wording of most notes beyond the flags, and everything only a
 live service can show, which is all of what sections 7 and 9 say about how the services answer.
+For the split of a capped Workday list, section 12 names rules that no test pins.
 
 **Against the private version, on recorded responses.** Two live runs minutes apart can differ
 because the lists move. To take the network out of the comparison, the private version was run
@@ -218,16 +219,23 @@ about. The offline cases do that.
 **This code, live.** `weekly_run.py` was run end to end twice on two small Greenhouse boards and
 one Workday tenant: canary, both passes, and a delta that showed a planted wall and a planted new
 role. `posting_census.py` fetched and read seven postings over six routes: Greenhouse, Ashby,
-Lever, Workday (two tenants), a JSON-LD page and a plain page.
+Lever, Workday (two tenants), a JSON-LD page and a plain page. The split of a capped Workday list
+(section 7) was added after publication. The code as committed was run live, without `--lane`, on
+two tenants that reported exactly 2,000 postings. On one the split ran, and the scanner then held
+exactly the number of postings the facet counted. On the other a page of the first list was
+refused (HTTP 502) in each of two runs, so the scanner reported that tenant as stopped and did
+not split it. An earlier build of the split, run the same day, had held exactly the facet's count
+on both tenants.
 
 **After the replay.** Six small fixes from the last review pass were made after the recordings
 were replayed, and the replay was not run again: Phenom paging when no total is reported, the
 Avature cap cutting its last page, a null JSON-LD date, `--probe` given a URL, the Workday
 fingerprint, and the weekly run's handling of a failed second pass. The offline tests cover each.
 
-**Not checked live in this version:** a full sweep with the published code on a live network. The
-live sweeps above were the refactor's; the published code has run against the recordings and, live,
-on the small set just described.
+**A full sweep, live.** At publication no full sweep had been run with the published code on a
+live network: the live sweeps above were the refactor's. One has been run since, with private
+settings: both passes of `weekly_run.py`, each exiting 0. Its row counts depend on those settings
+and are not given here.
 
 ## 11. What was fixed after independent review
 
@@ -277,3 +285,16 @@ fixed here:
   that a site is ruled out.
 - The Phenom search call sends the csrf token the site's own search page issues, as that page
   does. A site that refuses the call is reported as a wall.
+- The split of a capped Workday list (section 7), added after publication:
+  - A slice that ends short of its own total is not flagged by itself. It shows only when the
+    postings held then differ from the facet's count, and a posting the facet leaves out can
+    cancel that difference.
+  - The place test is a match on the facet's parameter name, so a facet named for something else
+    that holds one of those words is passed over.
+  - A facet count too large to read as a number, or a `jobPostings` that is not a list, raises
+    inside the split. The run then reports that employer as a wall with no rows, where the first
+    2,000 had been listed.
+  - Among the rules no test pins: the figure 6,000; the bound inside the second level; the count
+    being of distinct postings; the reason given for a capped slice that has no second facet; the
+    stop for a slice body that is not a JSON object; and that a total above 2,000, or 2,000 rows
+    with no total, is flagged STOPPED and not split.

@@ -144,8 +144,18 @@ own pages make.
 - Bands are read in US dollars, and the place logic assumes a United States home. The built-in
   word lists are blunt: "mexico" rejects "Remote - New Mexico", "assistant" drops "Assistant
   Controller", and the foreign list is short, so "Remote - Portugal" passes as a home posting.
-- Workday paging stops at 2,000 rows for every tenant: a reported total of exactly 2,000 is flagged
-  as capped, and a longer list as stopped. Avature stops at 200 pages, Eightfold at 5,000 rows,
+- A Workday tenant answers at most 2,000 postings to one query. When a tenant reports exactly
+  2,000 and every page of that list answered, the scanner asks the same query again once per
+  value of one facet (and, for a value that is capped as well, once per value of a second facet,
+  no deeper). That employer's note then gives the postings held beside the facet's own count, or
+  says the list is longer when no facet can be used. The scanner cannot see a posting that has no
+  value for that facet and was not among the first 2,000, so the note never calls the list
+  complete. It says the list may still be longer when the two numbers differ, another usable
+  facet counts more, a slice is still capped, or the split's bound is reached (no further query
+  once its queries have returned 6,000 postings). A slice that is refused or fails ends the
+  split: it is named in the note and no further query is sent. A reported total above 2,000, or
+  a list of 2,000 with no total, is paged to 2,000 rows, flagged as stopped and not split.
+- Avature stops at 200 pages, Eightfold at 5,000 rows,
   amazon.jobs at 10,000, and Phenom's main paging at 5,000 (its per-category fallback has no
   bound). Each of these stops is flagged in that employer's note, and so is a
   Workday, Eightfold or amazon.jobs list that ends short of the total the service reported.
