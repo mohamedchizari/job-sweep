@@ -138,7 +138,8 @@ own pages make.
   and the like. A real salary introduced as "salary plus bonus: $X - $Y" is skipped too, and the
   posting then counts as having no band.
 - The scanner reads a text range in two forms: `$150,000 - $180,000` (a dash or "to" between two
-  full figures; the second dollar sign may be missing), and "from $X ... up to $Y". "$150K - $180K", "$150,000/yr - $180,000/yr", "$150,000 USD - $180,000 USD"
+  full figures; the second dollar sign may be missing), and "from $X ... up to $Y". "$150K -
+  $180K", "$150,000/yr - $180,000/yr", "$150,000 USD - $180,000 USD"
   and "between $150,000 and $180,000" are not read, and such a posting counts as having no band.
 - Bands are read in US dollars, and the place logic assumes a United States home. The built-in
   word lists are blunt: "mexico" rejects "Remote - New Mexico", "assistant" drops "Assistant
