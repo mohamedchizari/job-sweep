@@ -53,7 +53,7 @@ and is not read.
 | key | what it sets |
 |---|---|
 | `pay_floor` | Dollars per year. A posting whose band tops out under it is dropped. A posting with no band passes. |
-| `metro.places` | The places that count as home. Each entry is a regular-expression fragment matched as a whole word, case-insensitive. |
+| `metro.places` | The places that count as home. Each entry is a regular-expression fragment matched as a whole word, case-insensitive. List the nearest first: when a posting gives one pay range per place, the range read is the one labelled with the first listed place that labels a range (the lower top if that place labels two). |
 | `metro.accept_remote` | Optional, default `true`: a remote posting counts as home unless it names a place on the foreign list and no home-country mark. `false`: only a listed place counts. |
 | `metro.home_country`, `metro.foreign_places` | Optional. They replace the built-in word lists used to judge a remote posting. Home-country marks are matched with case as written ("US" is a mark, the word "us" is not); the foreign list in any case. |
 | `lane_titles` | Title fragments. They decide which detail pages are read (see `--lane` below). |

@@ -51,14 +51,32 @@ two ranges and the lower one wins.
 A posting often prints several ranges, one per pay zone. The rule is: **the range labelled with a
 home place if there is one; otherwise, when remote counts as home, the range labelled remote;
 otherwise any range. Within each, the lowest top. Never the maximum.** The maximum is usually the
-figure for the most expensive market. `band_top_all` in the output keeps the highest top among the
+figure for the most expensive market. The home places are tried one at a time, in the order
+`metro.places` lists them, and "the lowest top" then means the lowest among the ranges the first
+such place labels. A pay table can hold a row for a listed city and a row for another city in a
+listed state; the place listed first is the one read, even when the other row has the lower
+top. So the nearest places are listed first and a whole state last. The same order decides among
+the zones of a structured source. `band_top_all` in the output keeps the highest top among the
 text ranges and the chosen band (not among the zones of a structured source), so the difference
 is visible where the ranges are in the text.
 
 The label of a text range is the text just before it, plus the "in <place>" or "for <zone>" that
 follows it. Both forms occur: "Denver: $170,000 - $210,000" and "$170,000 - $210,000 in Denver".
 When a phrase beginning in, for or at sits between two ranges, it is given to the range before
-it, up to the next comma, semicolon or full stop, and at most 40 characters. This is a heuristic. A sentence built another way can still attach a
+it, up to the next comma, semicolon or full stop, and at most 40 characters. One case is
+excepted, the row of a pay table: "Denver, CO: $170,000 - $210,000 for Analyst Pueblo, CO:
+$150,000 - $190,000". Three things must hold. The range has a label of its own that ends in a
+colon. The phrase after it begins with "for" and does not go on with a home place or, when
+remote counts as home, a remote word: "for Denver" and "for the Denver office" are place labels,
+not grades. And the words up to the next range end in a colon, hold no semicolon, full stop or
+dollar sign, run to at most 60 characters, do not name a home place directly after "in" or "at",
+and do not go on after the last home place they name ("for staff in Denver, CO:" and "for our
+Denver office Range:" are about the range before them; "for Analyst Denver, CO:" ends in the
+next row's label). Then all of those words label the next range (their last 45 characters) and
+none of them the range before. The words bonus, equity, stock, RSU, relocation, commission and
+incentive right after "for" ("for Equity Analyst", "for equity") still remove that row's own
+range, as they do outside a table, and are not held against the next row. A page's line breaks
+are gone by then, and nothing else separates the grade from the next city. This is a heuristic. A sentence built another way can still attach a
 place to the wrong range, and the lowest-top rule is what limits the damage when no label is read.
 
 ## 3. The level gate is the band, not the title
@@ -171,10 +189,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 391 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 430 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 304 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 326 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -280,6 +298,26 @@ fixed here:
 - US dollars and a United States home are assumed.
 - A two-letter place fragment matches ordinary words in a pay line, and any home-place word in
   the 45 characters before a range labels that range ("our Denver-founded firm pays").
+- A place more than 45 characters before its range, or in an earlier sentence, does not label
+  it: "Staff in Denver and in some other cities are paid, for this role, a base range of
+  $150,000 - $190,000" is read as a range with no place.
+- The order of `metro.places` decides between two home places in one posting (section 2). A
+  list that puts a state before its cities reads the lowest top among the rows that spell the
+  state as listed. A stray home-place word before a range ("our Denver-founded firm pays") now
+  also beats a range rightly labelled with a place listed later.
+- The table-row rule of section 2 covers one form. When the words between two ranges run past
+  60 characters, hold a full stop ("Colo.:") or do not end in a colon, the ranges are read as
+  before, and a range can still take the next row's city. A list written "Range: $150,000 -
+  $190,000 for greater Denver, Range: ..." is taken for a table, and "Denver" then labels the
+  second range: after a comma, one word before the colon reads like a state. Only the last home
+  place in those words is looked at, and "in" or "at" only directly before a place: "... for
+  staff in greater Denver, CO: ..." and "... for our Denver team Boulder, CO: ..." are taken for
+  table rows.
+- A grade that begins with bonus, equity, stock, RSU, relocation, commission or incentive
+  directly after "for" removes its own range ("$150,000 - $190,000 for Equity Analyst"), in a
+  table as elsewhere. In a table, any not-salary word later in a grade ("for Senior Equity
+  Analyst") removes the row after it. When a row is removed, the range read can be another
+  city's.
 - The census quotes "$50,000 and $60,000" as a range whatever the words around it say.
 - robots.txt and site terms are not read by the code. `offlimits` entries are how a person records
   that a site is ruled out.

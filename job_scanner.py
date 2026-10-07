@@ -100,6 +100,29 @@ NOT_SALARY_AFTER = re.compile(r"(?:in|for|at)\s+(?:an?\s+)?(bonus|equity|stock|r
 # "$195,000 - $245,000 in New York, $170,000 - $210,000 in Denver".
 TRAILING = re.compile(r"\s*(?:in|for|at)\b[^,;.$\n]{0,40}", re.I)
 
+# A pay table printed one row per city reads, once the page's line breaks are gone, "Denver, CO: $1 - $2 for
+# Analyst Pueblo, CO: $3 - $4". The "for ..." after a range then runs on into the next row's city.
+# Not when the words after "for" open with a home place or a remote word: "for Denver" is a place label, not a grade.
+TABLE_FOR = re.compile(r"\s*for\s+", re.I)
+# The grade of the row above can open with a not-salary word ("for Equity Analyst"). That opening is taken off
+# before the next row's label is searched for such words.
+FOR_GRADE = re.compile(r"\s*for\s+(?:an?\s+|the\s+)?" + NOT_SALARY.pattern, re.I)
+STATE_TAIL = re.compile(r",\s*[A-Za-z.]+$")
+IN_PLACE = re.compile(r"\b(?:in|at)\s+(?:the\s+)?", re.I)
+
+def _place_phrase(gap):
+    """True when the words between two ranges name a home place (or a remote word, when remote counts as home)
+    directly after "in" or "at", or go on after the last one they name: "for staff in Denver, CO:" and "for our
+    Denver office Range:" are about the range before them. A last home place with no "in" right before it, alone
+    or with a comma and one word after it, is the next row's label: "for Analyst Denver, CO:"."""
+    for w in IN_PLACE.finditer(gap):
+        if S.metro.match(gap, w.end()): return True
+    last = None
+    for last in S.metro.finditer(gap): pass
+    if not last: return False
+    tail = gap[last.end():].strip().rstrip(":").strip()
+    return bool(tail) and not STATE_TAIL.match(tail)
+
 def bands(text):
     """Every salary range in the text as (label, low, high), highest top first. The label is the
     text just before the range, plus the "in <place>" that follows it when there is one."""
@@ -112,20 +135,34 @@ def bands(text):
             continue
         if 30_000 <= a <= b <= 2_000_000:
             out.append((FROMTO_LABEL, a, b))
-    prev_end, prev_trail = None, 0
-    for m in MONEY.finditer(text):
+    prev_end, prev_trail, row_label = None, 0, None
+    found = list(MONEY.finditer(text))
+    for i, m in enumerate(found):
         ctx, lo, hi = m.groups()
         if prev_end == m.start(1):
             ctx = ctx[prev_trail:]            # the start of this gap was the previous range's "in <place>"
+        before = ctx.strip()[-45:]
+        # After a table row the words before this range begin with the grade of the row above; `row_label` is
+        # those words with a not-salary word that opens the grade taken off: it is not counted against this row.
+        # The row above answers for its own phrase (`phrase`, below).
+        checked, row_label = row_label or before, None
         t = TRAILING.match(text, m.end())
+        phrase = t.group(0).strip() if t else ""
+        nxt = found[i + 1] if i + 1 < len(found) else None
+        if t and nxt and nxt.start(1) == m.end() and before.endswith(":"):
+            gap, grade = nxt.group(1), TABLE_FOR.match(t.group(0))
+            if (grade and not S.metro.match(gap, grade.end()) and not _place_phrase(gap)
+                    and gap.rstrip().endswith(":") and ";" not in gap):
+                # A row of a table: all of the gap is the next row's label and none of it is this row's.
+                opening = FOR_GRADE.match(gap)
+                row_label, t = (gap[opening.end():] if opening else gap).strip()[-45:] or None, None
         trail = t.group(0).strip() if t else ""
         prev_end, prev_trail = m.end(), (len(t.group(0)) if t else 0)
         try:
             a, b = int(lo.replace(",", "")), int(hi.replace(",", ""))
         except ValueError:
             continue
-        before = ctx.strip()[-45:]
-        if NOT_SALARY.search(before) or NOT_SALARY_AFTER.match(trail):
+        if NOT_SALARY.search(checked) or NOT_SALARY_AFTER.match(phrase):
             continue
         if 30_000 <= a <= b <= 2_000_000:
             out.append((" ".join(x for x in (before, trail) if x), a, b))
@@ -133,10 +170,13 @@ def bands(text):
 
 def metro_band(bl):
     """The band labelled with a home place if there is one, else the one labelled remote (when
-    remote counts as home), else any: and within each, the LOWEST top -- never the max. The
-    maximum is usually the figure for the most expensive market, not for home."""
+    remote counts as home), else any. The home places are tried one at a time in the order the
+    settings list them: when a pay table has a row for a listed city and a row for another city
+    in a listed state, the place listed first is the one read. Within the first place that
+    labels a range, within the remote ranges and within "any", the LOWEST top -- never the max.
+    The maximum is usually the figure for the most expensive market, not for home."""
     low_first = sorted(bl, key=lambda t: t[2])
-    for label in (S.places, S.metro):
+    for label in S.place_order + [S.metro]:
         for ctx, lo, hi in low_first:
             if label.search(ctx): return ctx, lo, hi
     return low_first[0] if low_first else (None, None, None)
