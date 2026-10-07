@@ -137,15 +137,16 @@ own pages make.
 - A range is skipped as "not a salary" when the words just before it say bonus, equity, relocation
   and the like. A real salary introduced as "salary plus bonus: $X - $Y" is skipped too, and the
   posting then counts as having no band.
-- The scanner reads a text range only in the form `$150,000 - $180,000` (a dash or "to" between
-  two full figures). "$150K - $180K", "$150,000/yr - $180,000/yr", "$150,000 USD - $180,000 USD"
+- The scanner reads a text range in two forms: `$150,000 - $180,000` (a dash or "to" between two
+  full figures; the second dollar sign may be missing), and "from $X ... up to $Y". "$150K - $180K", "$150,000/yr - $180,000/yr", "$150,000 USD - $180,000 USD"
   and "between $150,000 and $180,000" are not read, and such a posting counts as having no band.
 - Bands are read in US dollars, and the place logic assumes a United States home. The built-in
   word lists are blunt: "mexico" rejects "Remote - New Mexico", "assistant" drops "Assistant
   Controller", and the foreign list is short, so "Remote - Portugal" passes as a home posting.
 - Workday paging stops at 2,000 rows for every tenant: a reported total of exactly 2,000 is flagged
-  as capped, and a longer list as stopped. Avature stops at 200 pages, Eightfold and Phenom at
-  5,000 rows, amazon.jobs at 10,000. Each stop is flagged in that employer's note, and so is a
+  as capped, and a longer list as stopped. Avature stops at 200 pages, Eightfold at 5,000 rows,
+  amazon.jobs at 10,000, and Phenom's main paging at 5,000 (its per-category fallback has no
+  bound). Each of these stops is flagged in that employer's note, and so is a
   Workday, Eightfold or amazon.jobs list that ends short of the total the service reported.
 - Routes change. An adapter that answered when this was written can be refused tomorrow, and the
   run will say so.
