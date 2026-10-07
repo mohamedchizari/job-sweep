@@ -24,7 +24,13 @@ WORKERS = int(sys.argv[1]) if len(sys.argv) > 1 else 6
 J, C, W, S = "job_scanner.py", "posting_census.py", "weekly_run.py", "sweep_settings.py"
 BAND = '        if 30_000 <= a <= b <= 2_000_000:\n            out.append((" ".join'
 FT = '        if 30_000 <= a <= b <= 2_000_000:\n            out.append((FROMTO_LABEL, a, b))'
-NS = "        if NOT_SALARY.search(before) or NOT_SALARY_AFTER.match(trail):"
+NS = "        if NOT_SALARY.search(checked) or NOT_SALARY_AFTER.match(phrase):"
+ROW = '        if t and nxt and nxt.start(1) == m.end() and before.endswith(":"):'
+GAP = "            if (grade and not S.metro.match(gap, grade.end()) and not _place_phrase(gap)"
+GAP2 = '                    and gap.rstrip().endswith(":") and ";" not in gap):'
+TF = r'TABLE_FOR = re.compile(r"\s*for\s+", re.I)'
+CHK = "        checked, row_label = row_label or before, None"
+ORDER = "    for label in S.place_order + [S.metro]:"
 LDB = '    if lo and cur in ("", "USD") and 30_000 <= lo <= hi <= 2_000_000:'
 PART = "        if S.remote.search(part) and (S.home.search(part) or not S.foreign.search(part)):"
 CB = '    return S.drop_active_clearance and r["clearance"] == "ACTIVE REQUIRED"'
@@ -44,7 +50,34 @@ M = [
  ("equity-after rule off", J, NS, "        if NOT_SALARY.search(before):"),
  ("trailing label not taken off the next range", J, "            ctx = ctx[prev_trail:]", "            pass"),
  ("no trailing labels", J, "        t = TRAILING.match(text, m.end())\n", "        t = None\n"),
- ("metro_band: remote label as good as a place label", J, "    for label in (S.places, S.metro):", "    for label in (S.metro,):"),
+ ("metro_band: remote label as good as a place label", J, ORDER, "    for label in [S.metro]:"),
+ ("metro_band: places not tried in the listed order", J, ORDER, "    for label in [S.places, S.metro]:"),
+ ("metro_band: only the first listed place tried", J, ORDER, "    for label in S.place_order[:1] + [S.metro]:"),
+ ("settings: place_order reversed", S, "for p in places]", "for p in reversed(places)]"),
+ ("metro_band: the last listed place not tried", J, ORDER, "    for label in S.place_order[:-1] + [S.metro]:"),
+ ("bands: a table row gives each range the next city", J, GAP, GAP.replace("(grade", "(False")),
+ ("bands: a colon anywhere before the next range makes a table row", J, GAP2, GAP2.replace('gap.rstrip().endswith(":")', '":" in gap')),
+ ("bands: a comma before the next range makes a table row", J, GAP2, GAP2.replace('gap.rstrip().endswith(":")', '("," in gap or gap.rstrip().endswith(":"))')),
+ ("bands: a semicolon before the next label still a table row", J, GAP2, GAP2.replace(' and ";" not in gap', "")),
+ ("bands: 'for <home place>' taken as a grade", J, GAP, GAP.replace(" and not S.metro.match(gap, grade.end())", "")),
+ ("bands: a home place with more words after it taken as the next label", J, GAP, GAP.replace(" and not _place_phrase(gap)", "")),
+ ("bands: a home city followed by a state code not taken as a label", J,
+  "    return bool(tail) and not STATE_TAIL.match(tail)", "    return bool(tail)"),
+ ("bands: a home place with more words after it and no 'in' taken as the next label", J,
+  "    return bool(tail) and not STATE_TAIL.match(tail)", "    return False"),
+ ("bands: 'in <home place>, <state>:' taken as the next label", J, "        if S.metro.match(gap, w.end()): return True", "        pass"),
+ ("bands: a home place, a state code and a label taken as the next label", J,
+  r'STATE_TAIL = re.compile(r",\s*[A-Za-z.]+$")', r'STATE_TAIL = re.compile(r",\s*[A-Za-z.]+(?:\s[A-Za-z.]+)?$")'),
+ ("bands: 'for <not-salary word>' before a colon label kept", J, NS, NS.replace("match(phrase)", "match(trail)")),
+ ("bands: 'in' and 'at' open a table row", J, TF, TF.replace("for", "(?:for|in|at)", 1)),
+ ("bands: a range with no label of its own taken as a table row", J, ROW, ROW.replace(' and before.endswith(":")', "")),
+ ("bands: a colon anywhere in the range's own label", J, ROW, ROW.replace('before.endswith(":")', '":" in before')),
+ ("bands: a table row across a sentence end", J, ROW, ROW.replace(" and nxt.start(1) == m.end()", "")),
+ ("bands: the grade of the row above read as a not-salary word", J, CHK, "        checked, row_label = before, None"),
+ ("bands: the row label kept for every later range", J, CHK, "        checked = row_label or before"),
+ ("bands: the not-salary word that opens the grade above not taken off", J,
+  "                row_label, t = (gap[opening.end():] if opening else gap).strip()[-45:] or None, None",
+  "                row_label, t = gap.strip()[-45:] or None, None"),
  ("metro_band: highest top first", J, "    low_first = sorted(bl, key=lambda t: t[2])", "    low_first = sorted(bl, key=lambda t: -t[2])"),
  ("metro_band: home label ignored", J, "            if label.search(ctx): return ctx, lo, hi", "            if False: return ctx, lo, hi"),
  ("ashby: currency ignored", J, '        if (c.get("currencyCode") or "USD") != "USD": continue\n', ""),

@@ -2,8 +2,9 @@
 """sweep_settings.py - the sweep's settings, read from one JSON file.
 
 What describes the person running the sweep lives in that file: the pay floor, the places that
-count as home, the title lane, what to do with a posting that demands an active security
-clearance, and the employers to enumerate. config.example.json holds made-up values; copy it to
+count as home (nearest first: their order decides which city's pay range is read), the title
+lane, what to do with a posting that demands an active security clearance, and the employers to
+enumerate. config.example.json holds made-up values; copy it to
 config.json and replace them.
 
 A bad file stops the run and names the key that is wrong. An unknown key is an error at every
@@ -155,6 +156,9 @@ class Settings:
         self.accept_remote = accept_remote
         self.remote = _words(REMOTE_WORDS, "remote words")
         self.places = _words(places, "metro.places")
+        # The same places one at a time, in the order listed. A pay table that names several of them is read
+        # for the first one listed, so the nearest place goes first and a whole state last.
+        self.place_order = [_words([p], "metro.places") for p in places]
         # One pattern for "this is home": a listed place, or a remote word when remote is accepted.
         self.metro = _words(places + (REMOTE_WORDS if accept_remote else []), "metro.places")
         self.home = _words(_fragments(metro.get("home_country"), "metro.home_country", required=False) or HOME_COUNTRY,

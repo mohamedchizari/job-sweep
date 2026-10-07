@@ -45,6 +45,9 @@ def main():
     ok &= check(bool(s.metro.search("Denver, CO")) and bool(s.metro.search("Remote")) and not s.metro.search("Denvers")
                 and bool(s.places.search("Denver")) and not s.places.search("Remote"),
                 "metro: places and remote words match as whole words; `places` holds the places alone")
+    ok &= check(len(s.place_order) == len(example()["metro"]["places"]) and bool(s.place_order[0].search("Denver, CO"))
+                and not s.place_order[0].search("Boulder") and bool(s.place_order[1].search("Boulder")),
+                "metro: `place_order` holds one pattern per place, in the order listed")
     ok &= check(bool(s.lane.search("Senior CPA")) and not s.lane.search("CPAP Technician") and bool(s.lane.search("Auditor")),
                 "lane: a fragment's own word boundary is kept; a fragment without one matches inside a word")
     ok &= check(bool(s.junior.search("Accounting Intern")) and bool(s.junior.search("Jr. Accountant")) and bool(s.foreign.search("Remote - Spain")),
