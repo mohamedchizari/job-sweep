@@ -1,0 +1,10 @@
+# Tools only. Your settings and the files the tools write by default stay out of the repository.
+# A --delta file, or a --results or --save-dir folder of your own naming, is yours to keep out.
+config.json
+config.*.json
+!config.example.json
+results/
+postings/
+*.csv
+__pycache__/
+.DS_Store
