@@ -333,12 +333,15 @@ fixed here:
   without "USD", so every limit of the plain form applies to it, and a reading that was right
   can turn wrong:
   - A dollar range that is not pay is taken for a band ("We manage budgets of $50,000 USD -
-    $90,000 USD"). So is a bonus line whose bonus word is neither in the 45 characters before
-    the range nor right behind it ("New hires also get $30,000 USD - $50,000 USD as a bonus").
+    $90,000 USD"). So is a bonus line that the not-a-salary rule of section 2 does not catch:
+    "New hires also get $30,000 USD - $50,000 USD as a bonus" and "$30,000 USD - $50,000 USD
+    bonus at target" are both read as bands.
   - Such a range can be picked over the salary range in the same text ("Typical deal sizes run
     $50,000 USD - $90,000 USD. The salary range is $150,000 - $190,000." gives $50,000 to
     $90,000, the lower top), and over a JSON-LD band when its words name a home place or
-    remote ("Remote teams manage budgets of ...").
+    remote ("Remote teams manage budgets of ..."). A lower range for another market does the
+    same to a salary range that names no place: "The base range is $150,000 - $190,000. Zone
+    B: $120,000 USD - $135,000 USD" gives $120,000 to $135,000.
   - The words behind a range, up to 40 characters, are its place: in "$120,000 USD - $135,000
     USD in Tucson and in Denver $150,000 - $190,000" the first range is read as Denver's.
   - Three figures chained with "USD" after the first are read as the first two ("Starts at
@@ -348,6 +351,10 @@ fixed here:
   - A comma right after a figure with cents is not taken into the range, with "USD" or
     without. In "$150,000.00 USD - $190,000.00 USD, in Denver; $195,000.00 USD - $245,000.00
     USD, in New York" the first range has no place and ", in Denver;" labels the second.
+  - On malformed input a range can read differently from its plain form. With two commas in
+    a row after the closing "USD", "$150,000 USD - $180,000 USD,, in Denver" has no place,
+    and the same words without "USD" have one. "USD" written twice after the first figure is
+    not read at all.
   With no "USD" after the first figure, the words behind "USD" after the second are still not
   read as that range's place or grade: "$150,000 - $180,000 USD in Denver" has no place. A
   range followed by another currency code ("$150,000 - $180,000 CAD") is read as US dollars.
@@ -358,22 +365,39 @@ fixed here:
   the board a `JobDetail` board, and its `FolderDetail` jobs are then not listed. A board whose
   first page holds neither `folderOffset=` nor `folderRecordsPerPage=` is read as empty. Any
   `FolderDetail` link on a result page is taken for a job, so a link that is page furniture
-  becomes a row. When the first page gives neither a `folderOffset` above zero nor a
-  `folderRecordsPerPage` to step by, such a link also makes the step one too long, and one job
-  on every page is then never listed; the count check of section 7 misses that when the extra
-  row and the missed job cancel out. The count check reads the first "N results" on the first
-  page, in those words: a line such as "Showing 3 results" above the total, or a count of
-  something else, gives a false flag, and a board that prints no such line is not checked. A
-  board that answers every `folderOffset` with its first page is read as that one page, with
-  no flag when it prints no count. A button text is known only once two jobs on one result
-  page have carried it: on a board that shows one job to a page, "View job" stays every job's
-  title. Two real jobs with the same title on one page lose it to the address, and so does any
-  later job with that title. An address that ends in no number gives a row with an empty
+  becomes a row. When the first page gives no `folderOffset` above zero and no
+  `folderRecordsPerPage` that is at most the number of jobs it links (none at all, or only
+  larger ones, such as a link to the last page), such a link also makes the step one too long,
+  and one job on every page is then never listed; the count check of section 7 misses that
+  when the extra row and the missed job cancel out. The count check reads the first "N results"
+  on the first page, in those words: a line such as "Showing 3 results" above the total, or a
+  count of something else, gives a false flag, and a board that prints no such line is not
+  checked. A board that answers every `folderOffset` with its first page is read as that one
+  page, with no flag when it prints no count. A button text is known only once two jobs on one
+  result page have carried it: on a board that shows one job to a page, "View job" stays every
+  job's title. Two real jobs with the same title on one page lose it to the address, and so does
+  any later job with that title. An address that ends in no number gives a row with an empty
   `req`. A result page refused part-way ends the list there; the note gives the status and how
-  many jobs were listed before it. The City, State and Country fields are found by their
-  English labels in Avature's own markup. A city field that says "Remote" is read as it
-  stands. A job page that prints its pay only in labelled fields of its own, not as a range in
-  its text or in its JSON-LD, shows no band.
+  many jobs were listed before it. The City, State and Country fields are found by their English
+  labels in Avature's own markup. A city field that says "Remote" is read as it stands. A job
+  page that prints its pay only in labelled fields of its own, not as a range in its text or in
+  its JSON-LD, shows no band. When a job page prints several City or State fields, the first of
+  each that is not empty is the one read.
+- A `FolderDetail` Avature board and `--cap`. A list cut by `--cap` part-way through a result
+  page is not flagged as stopped when a further page is then read and holds only jobs already
+  seen (five jobs on one page, a step of three and `--cap 4`). A list that reaches `--cap` with
+  exactly the printed number of rows is taken for complete even when one of those rows is a
+  link that is not a job and a job is missing. A board that prints no "N results" line is
+  flagged as stopped, although it is complete, whenever it still has jobs at the last offset
+  read below `--cap` (380 jobs, a step of 25 and `--cap 400`).
+- More on a `FolderDetail` Avature board. When the first result page links `FolderDetail`
+  pages and a later one links `JobDetail` pages, the later pages' jobs are not listed. A job
+  whose addresses end in no number is listed once for each address it is linked under; when
+  the step is taken from the number of jobs on the first page, it is then too long and jobs
+  are missed. An address that is a number and nothing else, with no words in
+  its link, gets the title "Folderdetail". A result page with tens of thousands of links takes
+  seconds to read, and a first result page with tens of thousands of script tags that never
+  close can take about a minute.
 - The census quotes "$50,000 and $60,000" as a range whatever the words around it say.
 - robots.txt and site terms are not read by the code. `offlimits` entries are how a person records
   that a site is ruled out.

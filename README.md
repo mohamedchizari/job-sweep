@@ -145,7 +145,7 @@ own pages make.
   posting counts as having no band.
 - A range with "USD" after its first figure is read as the same words without "USD" would be.
   So a dollar range that is not pay ("budgets of $50,000 USD - $90,000 USD", or a bonus line
-  whose bonus word is not right beside the range) is now taken for a band, as the same words
+  that the not-a-salary rule above does not catch) is now taken for a band, as the same words
   without "USD" always were. That can cost a posting its right band, or drop it: the range that
   is not pay can be picked over the salary range in the same text, and over the band in the
   page's structured data when its words name a home place or remote; and a posting that was
