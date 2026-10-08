@@ -122,6 +122,8 @@ def main():
     ok &= check(pc.band("Zone A $120,000.00 to $150,000.00\nZone B $140,000 to $185,000")[:2] == (140000, 185000),
                 "band: the line with the highest top wins, cents accepted")
     ok &= check(pc.band("Salary up to $150,000") is None, "band: one figure is not a band")
+    ok &= check(pc.band("Pay: $150,000 USD - $180,000 USD") is None and pc.band("Pay: $150,000 - $180,000 USD")[:2] == (150000, 180000),
+                "band: 'USD' after the first figure is not read here, though job_scanner.py reads it; after the second it is")
     ok &= check(pc.band("Pay: $850,000 - $900,000")[:2] == (850000, 900000) and pc.band("Pay: $850,000 - $950,000") is None,
                 "band: a range that tops out over $900,000 is not quoted")
     ok &= check(pc.band("x" * 700 + " $150,000 - $190,000") is None, "band: a line of more than 700 characters is not read as a pay line")

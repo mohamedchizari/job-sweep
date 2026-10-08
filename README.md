@@ -99,7 +99,7 @@ flag.
 | `icims` | subdomain | The public sitemap, then JSON-LD on each job page. |
 | `eightfold` | `host\|domain.com` | The search API, then a detail call for rows that name a home place or a remote word. |
 | `phenom_widget` | careers base URL | The site's own search POST. |
-| `avature` | slug or base URL | HTML result pages, then each job page: its JSON-LD, or its text when it has none. |
+| `avature` | slug or base URL | HTML result pages, then each job page: its JSON-LD, or its text when it has none. A board that links `FolderDetail` pages instead of `JobDetail` pages is read too. |
 | `successfactors_rss` | careers host | The site's RSS feed, then the job page for lane titles. |
 | `amazon` | `category\|query` | amazon.jobs search JSON, United States, up to 10,000 rows. |
 | `sitemap` | sitemap URL | A jobs sitemap whose URLs end `/<title-slug>/<id>/`, then the job page for lane titles. |
@@ -138,9 +138,18 @@ own pages make.
   and the like. A real salary introduced as "salary plus bonus: $X - $Y" is skipped too, and the
   posting then counts as having no band.
 - The scanner reads a text range in two forms: `$150,000 - $180,000` (a dash or "to" between two
-  full figures; the second dollar sign may be missing), and "from $X ... up to $Y". "$150K -
-  $180K", "$150,000/yr - $180,000/yr", "$150,000 USD - $180,000 USD"
-  and "between $150,000 and $180,000" are not read, and such a posting counts as having no band.
+  full figures; the second dollar sign may be missing), and "from $X ... up to $Y". The first
+  form may carry "USD" after its first figure, and then after its second too (`$150,000 USD -
+  $180,000 USD`); written that way, the second figure needs its dollar sign. "$150K - $180K",
+  "$150,000/yr - $180,000/yr" and "between $150,000 and $180,000" are not read, and such a
+  posting counts as having no band.
+- A range with "USD" after its first figure is read as the same words without "USD" would be.
+  So a dollar range that is not pay ("budgets of $50,000 USD - $90,000 USD", or a bonus line
+  whose bonus word is not right beside the range) is now taken for a band, as the same words
+  without "USD" always were. That can cost a posting its right band, or drop it: the range that
+  is not pay can be picked over the salary range in the same text, and over the band in the
+  page's structured data when its words name a home place or remote; and a posting that was
+  listed with no band can fall under the pay floor. `docs/DESIGN.md` section 12 lists the forms.
 - Bands are read in US dollars, and the place logic assumes a United States home. The built-in
   word lists are blunt: "mexico" rejects "Remote - New Mexico", "assistant" drops "Assistant
   Controller", and the foreign list is short, so "Remote - Portugal" passes as a home posting.
@@ -155,7 +164,9 @@ own pages make.
   once its queries have returned 6,000 postings). A slice that is refused or fails ends the
   split: it is named in the note and no further query is sent. A reported total above 2,000, or
   a list of 2,000 with no total, is paged to 2,000 rows, flagged as stopped and not split.
-- Avature stops at 200 pages, Eightfold at 5,000 rows,
+- Avature stops at 200 pages (twelve jobs to a page on a `JobDetail` board; on a `FolderDetail`
+  board a page is the step the scanner works out from the board's first page, see
+  `docs/DESIGN.md` section 7), Eightfold at 5,000 rows,
   amazon.jobs at 10,000, and Phenom's main paging at 5,000 (its per-category fallback has no
   bound). Each of these stops is flagged in that employer's note, and so is a
   Workday, Eightfold or amazon.jobs list that ends short of the total the service reported.

@@ -15,7 +15,7 @@ the posting itself publishes: the pay band, the location and the clearance wordi
   Eightfold   /api/pcsx/search, with the employer's registered domain; the description is on a
               detail endpoint.
   Phenom      the site's own search call, POST /widgets.
-  Avature     HTML only, but enumerable: /careers/SearchJobs/?jobOffset=N
+  Avature     HTML only, but enumerable: /careers/SearchJobs/?jobOffset=N (or ?folderOffset=N)
   JSON-LD     one extractor for any site that emits schema.org JobPosting.
   Liveness    the LIST endpoint is truth. A detail page that still renders is NOT evidence a
               requisition is open.
@@ -70,8 +70,17 @@ CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtai
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen)", re.I)
 
-MONEY = re.compile(r"([^.$\n]{0,60}?)\$\s?([\d,]{5,12})(?:\.\d\d)?\s*(?:-|–|—|to)\s*"
-                   r"\$?\s?([\d,]{5,12})(?:\.\d\d)?", re.I)
+# Two forms. "$150,000 - $180,000", and the same with "USD" between the first figure and the dash, where "USD" may
+# follow the second figure too: "$150,000 USD - $180,000 USD". No other currency code is read after the first
+# figure, so "$150,000 CAD - $180,000 CAD" is not a range, and in that form the second figure needs its dollar sign.
+# A comma right after that last "USD" is taken in when the second figure has no cents, because a comma right after
+# a plain figure without cents is taken in by the figure itself: "... $180,000 USD, in Denver" keeps its place as
+# "... $180,000, in Denver" does, and "... $180,000.00 USD, in Denver" has none, as "... $180,000.00, in Denver" has
+# none. A text with no "$figure USD" followed by a dash or "to" in it is read exactly as it was before the second
+# form was added.
+MONEY = re.compile(r"([^.$\n]{0,60}?)\$\s?([\d,]{5,12})(?:\.\d\d)?(?:\s*(?:-|–|—|to)\s*"
+                   r"\$?\s?([\d,]{5,12})(?:\.\d\d)?"
+                   r"|\s*USD\s*(?:-|–|—|to)\s*\$\s?([\d,]{5,12})(?:\.\d\d(?:\s*USD)?|\s*USD,?)?)", re.I)
 
 def strip_html(s):
     if not s: return ""
@@ -138,7 +147,7 @@ def bands(text):
     prev_end, prev_trail, row_label = None, 0, None
     found = list(MONEY.finditer(text))
     for i, m in enumerate(found):
-        ctx, lo, hi = m.groups()
+        ctx, lo, hi = m.group(1), m.group(2), m.group(3) or m.group(4)
         if prev_end == m.start(1):
             ctx = ctx[prev_trail:]            # the start of this gap was the previous range's "in <place>"
         before = ctx.strip()[-45:]
@@ -326,16 +335,19 @@ def ld_expired(jp):
     except Exception:
         return False
 
-def enrich_from_page(row, sess):
+def enrich_from_page(row, sess, fields=None):
     """Fetch the detail page and read its JSON-LD; when the page has none, its text. For lists that
     carry no salary, place or text (iCIMS, Avature, sitemaps, feeds). row["_detail"] says how the
-    read went, so the adapter's note can count the reads that failed."""
+    read went, so the adapter's note can count the reads that failed. `fields`, when given, is
+    called with the row and the page of a read that answered, before the JSON-LD is read: a
+    location it sets is kept."""
     try:
         r = sess.get(row["url"], headers=UA, timeout=TIMEOUT)
         if r.status_code != 200:
             row["_detail"] = f"HTTP {r.status_code}"
             return row
         row["_detail"] = "ok"
+        if fields: fields(row, r.text)
         jp = jsonld_jobposting(r.text)
         if jp:
             row["text"] = (row.get("text", "") + " " + strip_html(jp.get("description", "")))[:60000]
@@ -750,43 +762,138 @@ def workday(spec, sess, lane=None, cap=400, **_):
         note += f"  <-- SHORT: the list ended at {len(rows)} of a reported {total}"
     return rows, note
 
+AV_FIELD = re.compile(r'field__label">\s*(City|State|Country)\s*</div>\s*<div class="[^"]*field__value">(.*?)</div>', re.S)
+
+def _avature_place(row, page):
+    """A FolderDetail page's JSON-LD can hold a country and a postcode and no city. The page prints City, State
+    and Country as labelled fields (the first of each that is not empty is read). Together they are the row's
+    location when the page prints a city or a state and the JSON-LD names neither: no addressLocality, no
+    addressRegion, and no address given as one string with a comma in it. A JSON-LD remote mark is kept."""
+    jp = jsonld_jobposting(page) or {}
+    locs = jp.get("jobLocation") or []
+    for l in (locs if isinstance(locs, list) else [locs]):
+        a = l.get("address") if isinstance(l, dict) else l
+        if isinstance(a, list): a = ", ".join(str(x) for x in a if x)
+        if isinstance(a, str) and "," in a: return
+        if isinstance(a, dict) and (a.get("addressLocality") or a.get("addressRegion")): return
+    got = {}
+    for k, v in AV_FIELD.findall(page):
+        if strip_html(v): got.setdefault(k, strip_html(v))
+    if got.get("City") or got.get("State"):
+        row["location"] = ", ".join(got[k] for k in ("City", "State", "Country") if got.get(k))
+        if str(jp.get("jobLocationType", "")).upper() == "TELECOMMUTE": row["location"] += "; Remote"
+
+AV_FOLDER_HREF = re.compile(r'href="([^"]{0,1500}?/careers/FolderDetail/[^"]{1,1500})"')
+AV_NUMBER = re.compile(r"/(\d+)/?(?:[?#].*)?$")
+AV_FOLDER_PAGING = re.compile(r"folder(?:Offset|RecordsPerPage)=")
+AV_OFFSET = re.compile(r"folderOffset=(\d+)")
+AV_PER_PAGE = re.compile(r"folderRecordsPerPage=(\d+)")
+AV_COUNT = re.compile(r"\b(\d[\d,]{0,11})\s+results\b(?!\s+per\b)", re.I)
+
+def _avature_folder_jobs(page):
+    """The FolderDetail jobs a result page links, as {job: [address, title]} in page order. A job is the number
+    its address ends in (before a closing "/" and any ? or #), or the whole address when it ends in none. The
+    address kept is the first one linked; the title is the text of the job's first link that has words, or
+    None. A link is an <a ...> tag holding the address, read up to its "</a>"; a tag longer than 1,000
+    characters on either side of the address, or a text longer than 4,000, is not read for words."""
+    jobs = {}
+    for m in AV_FOLDER_HREF.finditer(page):
+        href = m.group(1)
+        n = AV_NUMBER.search(href)
+        job = jobs.setdefault(n.group(1) if n else href, [href, None])
+        if job[1] is not None: continue
+        a = page.rfind("<a", max(0, m.start() - 1000), m.start())
+        gt = page.find(">", m.end(), m.end() + 1000)
+        if a < 0 or gt < 0 or not page[a + 2:a + 3].isspace() or ">" in page[a:m.start()]: continue
+        end = page.find("</a>", gt, gt + 4000)
+        if end >= 0: job[1] = strip_html(page[gt + 1:end]) or None
+    return jobs
+
+def _avature_address_title(href):
+    """A FolderDetail title taken from the address: the part before the job number, or the last part when the
+    address ends in no number. A closing "/" and anything from ? or # on are left out first."""
+    parts = re.split(r"[?#]", href)[0].rstrip("/").split("/")
+    if len(parts) > 1 and parts[-1].isdigit(): parts.pop()
+    return parts[-1].replace("-", " ").title()
+
 def avature(co, sess, cap=400, lane=None, **_):
     """No JSON API exists. HTML pagination works.
     co is a slug ({co}.avature.net) or a full base URL for a site on its own domain, such as
     https://careers.example.com/portal. Many tenants answer 406 to plain HTTP clients
-    (a client-fingerprint block): that is a wall, not an empty board, and it is not worked around."""
+    (a client-fingerprint block): that is a wall, not an empty board, and it is not worked around.
+    A board links its jobs as JobDetail pages, 12 to a result page, or as FolderDetail pages. A
+    board is read as a FolderDetail board when its first page links no JobDetail page, links a
+    FolderDetail page, and holds "folderOffset=" or "folderRecordsPerPage=" anywhere in it: a
+    FolderDetail link on a page without those is taken for page furniture, and the board for
+    empty. See _avature_folder_jobs for what a job is on such a board. It is paged with
+    folderOffset. The step is the first of these that is above zero and no more than the jobs
+    the first page links: the smallest folderOffset on that page, the smallest
+    folderRecordsPerPage on it; otherwise the number of those jobs. A text that two or more
+    jobs of one result page share ("View job") is a button, not a title, there and on every
+    later page: the title then comes from the address (_avature_address_title). The location
+    can come from the job page's fields (_avature_place). When the first page prints "N
+    results" and the rows listed come to another number, the note says so; a list that reaches
+    the cap with exactly the printed number of rows is not called stopped."""
     base = co.rstrip("/") if co.startswith("http") else f"https://{co}.avature.net"
     origin = re.match(r"https?://[^/]+", base).group(0)
-    rows, off, seen, more = [], 0, set(), False
-    while (not cap or off < cap) and off < 12 * 200:   # cap 0 = no cap, as in icims; 200 pages is the hard bound
-        r = sess.get(f"{base}/careers/SearchJobs/?jobRecordsPerPage=12&jobOffset={off}",
-                     headers=UA, timeout=TIMEOUT)
+    rows, off, seen, more, pages, step, folder, counted, buttons = [], 0, set(), False, 0, 12, False, None, set()
+    while (not cap or off < cap) and pages < 200:   # cap 0 = no cap, as in icims; 200 pages is the hard bound
+        query = f"folderOffset={off}" if folder else f"jobRecordsPerPage=12&jobOffset={off}"
+        r = sess.get(f"{base}/careers/SearchJobs/?{query}", headers=UA, timeout=TIMEOUT)
         if r.status_code != 200:
             why = " (406 = Avature's client-fingerprint block; needs a browser-like client)" if r.status_code == 406 else ""
-            return rows, f"avature {co}: HTTP {r.status_code} at offset={off}{why}"
-        links = [h for h in dict.fromkeys(re.findall(r'href="([^"]*?/careers/JobDetail/[^"]+)"', r.text)) if h not in seen]
+            listed = f" (FolderDetail links; {len(rows)} jobs listed before it)" if folder else ""
+            return rows, f"avature {co}: HTTP {r.status_code} at offset={off}{why}{listed}"
+        links = list(dict.fromkeys(re.findall(r'href="([^"]*?/careers/JobDetail/[^"]+)"', r.text)))
+        jobs = {}
+        if pages == 0 and not links:
+            jobs = _avature_folder_jobs(r.text)
+            if jobs and AV_FOLDER_PAGING.search(r.text):
+                folder = True
+                step = len(jobs)
+                for found in (AV_OFFSET.findall(r.text), AV_PER_PAGE.findall(r.text)):
+                    sizes = [int(n) for n in found if len(n) <= 7 and int(n) > 0]
+                    if sizes and min(sizes) <= len(jobs):
+                        step = min(sizes); break
+                printed = AV_COUNT.search(strip_html(r.text))
+                counted = int(printed.group(1).replace(",", "")) if printed else None
+        elif folder:
+            jobs = _avature_folder_jobs(r.text)
+        if folder:
+            texts = [t for _, t in jobs.values() if t]
+            buttons.update(t for t in texts if texts.count(t) > 1)   # a text two jobs of a page share: a button
+            jobs = {j: [h, None if t in buttons else t] for j, (h, t) in jobs.items()}
+            links = [j for j in jobs if j not in seen]
+        else:
+            links = [h for h in links if h not in seen]
         more = bool(links)
         if not links: break   # an empty page, or a page that only repeats earlier links
         seen.update(links)
         time.sleep(PAUSE)
-        for href in links:
+        for link in links:
             if cap and len(rows) >= cap: break   # the last page is cut at the cap
+            href, words = jobs[link] if folder else (link, None)
             u = href if href.startswith("http") else f"{origin}{href}"
             m = re.search(r"/(\d+)$", href)
             row = dict(req=m.group(1) if m else "", title=href.split("/")[-2].replace("-", " ").title(),
                        location="", text="", url=u, posted="")
+            if folder:
+                if link != href: row["req"] = link
+                row["title"] = words or _avature_address_title(href)
             if lane and not lane.search(row["title"]):
                 row["unread"] = "YES"   # no detail fetch outside the lane: a large tenant has more than a thousand
             else:
-                enrich_from_page(row, sess); time.sleep(PAUSE)
+                enrich_from_page(row, sess, _avature_place if folder else None); time.sleep(PAUSE)
             rows.append(row)
-        off += 12
+        off += step; pages += 1
     n = sum(1 for r in rows if r.get("_detail") == "ok")
     stop = ""
-    if more:   # the loop ended on a bound, not on an empty page
+    if more and not (folder and counted is not None and counted == len(rows)):   # ended on a bound, not on an empty page
         stop = f"  <-- STOPPED at {'--cap ' + str(cap) if cap and off >= cap else 'the 200-page bound'}; the list may be longer"
-    return rows, (f"avature {co}: {len(rows)} jobs listed, {n} job pages read" + (" (lane rows only)" if lane else "")
-                  + failed_reads(rows) + stop)
+    elif counted is not None and counted != len(rows):
+        stop = f"  <-- the first page says {counted} results: jobs were missed, or links that are not jobs were read"
+    return rows, (f"avature {co}: {len(rows)} jobs listed" + (" (FolderDetail links)" if folder else "") + f", {n} job pages read"
+                  + (" (lane rows only)" if lane else "") + failed_reads(rows) + stop)
 
 # The request body and headers follow ats-scrapers 0.3.0, phenom.py (MIT; see THIRD_PARTY_NOTICES.md). The POST
 # needs the csrf cookie the search-page GET seeds, echoed as x-csrf-token, plus Origin and Referer, or it 403s.
