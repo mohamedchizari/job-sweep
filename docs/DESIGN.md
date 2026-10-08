@@ -34,7 +34,12 @@ The band is read from the most structured source the posting offers. In order of
    home place (or with a remote word, when remote counts as home), which is the more specific
    figure.
 3. Text: `$X - $Y` ranges, and the "from $X in our lowest geographic market up to $Y in our
-   highest" form.
+   highest" form. A range may carry "USD" between its first figure and the dash, and then after
+   its second figure too ("$150,000 USD - $180,000 USD"); in that form the second figure needs
+   its dollar sign, and no other currency code is read. Such a range is read as the same words
+   without "USD" would be; a comma right after the closing "USD" is taken into the range when
+   the second figure has no cents, as a plain figure without cents takes its own comma in. A
+   text that holds no "$figure USD" followed by a dash or "to" is read as it always was.
 
 Ashby and JSON-LD figures given per hour, day, week or month are annualised. A range from any
 source is accepted only between $30,000 and $2,000,000 a year: outside that it counts as no band,
@@ -157,7 +162,7 @@ With `--lane`, details are read for lane titles only; the other rows are left ou
 | `icims` | Every URL in the sitemap, up to `--cap`; the cap is flagged. | Titles come from URL slugs. A refused job page is counted, and its row has no place. |
 | `eightfold` | Paged to the reported count, which the note prints, or until empty when none is reported. Stops at 5,000 rows, or on a page that fails part-way; both are flagged, and so is a list that ends short of the count. | Descriptions are read only for rows that name a home place or a remote word. |
 | `phenom_widget` | Measured against `totalHits`; sliced by category when paging under-delivers. Paging stops at 5,000 rows, flagged. | Marked INCOMPLETE under 90 percent of the total. |
-| `avature` | Result pages until one repeats or is empty. Stops at `--cap` rows or at 200 pages, flagged. | Many tenants refuse plain HTTP clients with 406. That is a wall. |
+| `avature` | Result pages until one repeats or is empty. Stops at `--cap` rows or at 200 pages, flagged. A board is read as a `FolderDetail` board when its first result page links no `JobDetail` page, links a `FolderDetail` page, and holds `folderOffset=` or `folderRecordsPerPage=` anywhere in it; the note then says "FolderDetail links", also when a later result page is refused. It is paged with `folderOffset`. The step is the first of these that is above zero and no more than the jobs the first page links: the smallest `folderOffset` on that page, the smallest `folderRecordsPerPage` on it; failing both, the number of those jobs. When the first page prints "N results" and the rows listed come to another number, that is flagged; a list that reaches `--cap` with exactly that number of rows is not flagged as stopped. | Many tenants refuse plain HTTP clients with 406. That is a wall. On a `FolderDetail` board a job is the number its address ends in, before a closing "/" and anything from "?" or "#" on (the whole address when it ends in none); its title is the text of its first link that has words. The title comes from the address instead (the part before the number) when no link has words, or when two or more jobs on one result page carry the same words, on that page or an earlier one: such a text is taken for a button. Its location is the job page's City, State and Country fields when the page prints a city or a state and its JSON-LD names neither (it can hold a country and a postcode only). |
 | `successfactors_rss` | The feed. No total to check against. | Feed items are teasers; job pages are read for lane titles, and on the site tried they carried no JSON-LD, so the place comes from the title. |
 | `amazon` | Paged until empty or the reported hits. A stop at 10,000 rows, on HTTP 400 after the first page, or short of the reported hits is flagged. | The pay range is the lowest-to-highest market range, not a metro band, and is labelled so. |
 | `sitemap` | Every URL in the file. Sitemap indexes and `.gz` files are not followed. | No location or text without `--lane`: every row is then unread. With it, lane rows are read up to `--cap`, flagged; a row whose page is refused stays unread. |
@@ -189,10 +194,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 430 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 512 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 326 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 406 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -244,6 +249,11 @@ exactly the number of postings the facet counted. On the other a page of the fir
 refused (HTTP 502) in each of two runs, so the scanner reported that tenant as stopped and did
 not split it. An earlier build of the split, run the same day, had held exactly the facet's count
 on both tenants.
+
+**A FolderDetail board, live.** The reading of Avature boards that link `FolderDetail` pages
+(section 7) was added after publication. The code as committed was run live once on one such
+board, with a title lane: the rows listed came to the number the board's first page printed,
+the note carried no flag, and every job page read gave a location with a city or a state.
 
 **After the replay.** Six small fixes from the last review pass were made after the recordings
 were replayed, and the replay was not run again: Phenom paging when no total is reported, the
@@ -318,6 +328,52 @@ fixed here:
   table as elsewhere. In a table, any not-salary word later in a grade ("for Senior Equity
   Analyst") removes the row after it. When a row is removed, the range read can be another
   city's.
+- "USD" in a text range. A range with "USD" after its first figure was not read before; the
+  posting then kept the band it had from elsewhere, or none. It is now read as the same words
+  without "USD", so every limit of the plain form applies to it, and a reading that was right
+  can turn wrong:
+  - A dollar range that is not pay is taken for a band ("We manage budgets of $50,000 USD -
+    $90,000 USD"). So is a bonus line whose bonus word is neither in the 45 characters before
+    the range nor right behind it ("New hires also get $30,000 USD - $50,000 USD as a bonus").
+  - Such a range can be picked over the salary range in the same text ("Typical deal sizes run
+    $50,000 USD - $90,000 USD. The salary range is $150,000 - $190,000." gives $50,000 to
+    $90,000, the lower top), and over a JSON-LD band when its words name a home place or
+    remote ("Remote teams manage budgets of ...").
+  - The words behind a range, up to 40 characters, are its place: in "$120,000 USD - $135,000
+    USD in Tucson and in Denver $150,000 - $190,000" the first range is read as Denver's.
+  - Three figures chained with "USD" after the first are read as the first two ("Starts at
+    $95,000 USD - $150,000 - $190,000" gives $95,000 to $150,000). When the words before the
+    first say relocation, bonus or the like, that range is skipped and nothing is read at all
+    ("Relocation of $20,000 USD - $150,000 - $190,000 base").
+  - A comma right after a figure with cents is not taken into the range, with "USD" or
+    without. In "$150,000.00 USD - $190,000.00 USD, in Denver; $195,000.00 USD - $245,000.00
+    USD, in New York" the first range has no place and ", in Denver;" labels the second.
+  With no "USD" after the first figure, the words behind "USD" after the second are still not
+  read as that range's place or grade: "$150,000 - $180,000 USD in Denver" has no place. A
+  range followed by another currency code ("$150,000 - $180,000 CAD") is read as US dollars.
+  `posting_census.py` does not read "USD" after the first figure.
+- Two ranges with the same top. Which of them is reported can differ from one run to the next
+  ("Zone A: $100,000 - $150,000; Zone B: $120,000 - $150,000"): their order comes from a set.
+- A `FolderDetail` Avature board. A first result page that links even one `JobDetail` page makes
+  the board a `JobDetail` board, and its `FolderDetail` jobs are then not listed. A board whose
+  first page holds neither `folderOffset=` nor `folderRecordsPerPage=` is read as empty. Any
+  `FolderDetail` link on a result page is taken for a job, so a link that is page furniture
+  becomes a row. When the first page gives neither a `folderOffset` above zero nor a
+  `folderRecordsPerPage` to step by, such a link also makes the step one too long, and one job
+  on every page is then never listed; the count check of section 7 misses that when the extra
+  row and the missed job cancel out. The count check reads the first "N results" on the first
+  page, in those words: a line such as "Showing 3 results" above the total, or a count of
+  something else, gives a false flag, and a board that prints no such line is not checked. A
+  board that answers every `folderOffset` with its first page is read as that one page, with
+  no flag when it prints no count. A button text is known only once two jobs on one result
+  page have carried it: on a board that shows one job to a page, "View job" stays every job's
+  title. Two real jobs with the same title on one page lose it to the address, and so does any
+  later job with that title. An address that ends in no number gives a row with an empty
+  `req`. A result page refused part-way ends the list there; the note gives the status and how
+  many jobs were listed before it. The City, State and Country fields are found by their
+  English labels in Avature's own markup. A city field that says "Remote" is read as it
+  stands. A job page that prints its pay only in labelled fields of its own, not as a range in
+  its text or in its JSON-LD, shows no band.
 - The census quotes "$50,000 and $60,000" as a range whatever the words around it say.
 - robots.txt and site terms are not read by the code. `offlimits` entries are how a person records
   that a site is ruled out.

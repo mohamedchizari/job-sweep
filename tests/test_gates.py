@@ -2,13 +2,14 @@
 """Offline check of job_scanner.py: the band readers, the gates, each adapter and a whole run.
 No network: fake sessions serve fixtures in the response shapes the adapters expect. Everything
 in the fixtures is made up (employers, titles, places, figures), except the from/up-to sentence
-form, which is the one amazon.jobs prints. The settings are
+form, which is the one amazon.jobs prints, and the class names of the field markup on Avature
+job pages. The settings are
 config.example.json. A pass proves the code path, not that any role is open or that any route
 answers today.
 
   python3 tests/test_gates.py
 """
-import contextlib, csv, datetime, io, json, os, sys, tempfile
+import contextlib, csv, datetime, io, json, os, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE); sys.path.insert(0, ROOT)
 import job_scanner as js
 import sweep_settings
@@ -180,6 +181,49 @@ def test_bands():
     check([x[1:] for x in b] == [(150000, 190000)], "a row whose own label says bonus is still left out")
     b = js.bands("Remote: $150,000 - $170,000; Zone B: $100,000 - $120,000")
     check(js.metro_band(b)[1:] == (150000, 170000), "no place label: a range labelled remote beats a lower range with no home label")
+    # ---- "USD" between the first figure and the dash
+    check([x[1:] for x in js.bands("Pay: $150,000 USD - $180,000 USD")] == [(150000, 180000)], "'USD' after each figure: the range is read")
+    check([x[1:] for x in js.bands("Pay: $150,000.00usd to $180,000.00")] == [(150000, 180000)],
+          "the same with cents, no space, small letters, 'to', and nothing after the second figure")
+    check(js.bands("Pay: $150,000 CAD - $180,000 CAD") == [] and js.bands("Pay: $150,000 EUR to $180,000") == [],
+          "another currency code after the first figure: not a range")
+    check(js.bands("A grant of $60,000 USD - 75,000 options") == [], "in that form the second figure needs its dollar sign")
+    for text in ("Pay: $150,000 USD - $180,000 USD in Denver, $190,000 USD - $240,000 USD in Reno",
+                 "Reno, NV: $150,000 USD - $190,000 USD for Analyst Denver, CO: $170,000 USD - $210,000 USD for Analyst",
+                 "Salary: $150,000 USD - $190,000 USD plus $30,000 USD - $50,000 USD in equity.",
+                 "Sign-on bonus $30,000 USD - $50,000 USD. Base $150,000 USD - $190,000 USD for Analyst",
+                 "$195,000 USD - $245,000 USD in New York $170,000 USD - $210,000 USD in Denver $110,000 USD - $130,000 USD in Austin"):
+        plain = text.replace(" USD", "")
+        check(js.bands(text) == js.bands(plain) and js.bands(plain) != [], f"a range written with 'USD' is read as the same words without it ({text[:44]!r})")
+    b = js.bands("Pay: $150,000 USD - $180,000 USD in Denver, $190,000 USD - $240,000 USD in Reno"); pick = js.metro_band(b)
+    check(pick == ("Pay: in Denver", 150000, 180000), f"so it takes the 'in <place>' behind its last 'USD' ({pick})")
+    check([x[1:] for x in js.bands("Salary: $150,000 - $190,000 plus $30,000 USD - $50,000 USD in equity.")] == [(150000, 190000)],
+          "and 'in equity' behind it still marks it as not a salary")
+    b = js.bands("Pay: $150,000 - $180,000 USD in Denver")
+    check([x[0] for x in b] == ["Pay:"], "a known limit, unchanged: with no 'USD' after the first figure, 'USD' after the second keeps 'in <place>' out of the label")
+    check([x[1:] for x in js.bands("We manage budgets of $50,000 USD - $90,000 USD.")] == [(50000, 90000)] == [x[1:] for x in js.bands("We manage budgets of $50,000 - $90,000.")],
+          "a known limit: a dollar range that is not pay is read as a band, with 'USD' as without")
+    check([x[1:] for x in js.bands("Pay: $150,000 - $180,000 CAD")] == [(150000, 180000)], "a known limit, unchanged: another currency code after the second figure is not seen")
+    for text in ("Pay: $150,000 USD - $180,000 USD, in Denver; $190,000 USD - $240,000 USD, in Reno",
+                 "Salary: $150,000 - $190,000 plus $30,000 USD - $50,000 USD, in equity.",
+                 "$150,000 USD - $190,000 USD, for Analyst. $170,000 USD - $210,000 USD, at our Reno office",
+                 "Pay: $150,000.00 USD - $180,000.00 USD, in Denver; $190,000.00 USD - $240,000.00 USD, in equity"):
+        plain = text.replace(" USD", "")
+        check(js.bands(text) == js.bands(plain) and js.bands(plain) != [], f"and a comma right after its last 'USD' changes nothing ({text[:44]!r})")
+    b = js.bands("Pay: $150,000 USD - $180,000 USD, in Denver; $190,000 USD - $240,000 USD, in Reno"); pick = js.metro_band(b)
+    check(pick == ("Pay: in Denver", 150000, 180000), f"so each range keeps the place behind that comma ({pick})")
+    check([x[1:] for x in js.bands("Pay: $150,000 USD – $180,000 USD")] == [(150000, 180000)] == [x[1:] for x in js.bands("Pay: $150,000 USD — $180,000 USD")],
+          "'USD' form: an en dash and an em dash join the figures as a hyphen does")
+    b = js.bands("Pay: $150,000.00 USD - $180,000.50 USD in Denver")
+    check([x[1:] for x in b] == [(150000, 180000)] and b[0][0] == "Pay: in Denver", f"'USD' form: cents on either figure are taken in, and the place behind them is kept ({b})")
+    check([x[1:] for x in js.bands("Pay: $150,000 USD - $ 180,000 USD")] == [(150000, 180000)], "'USD' form: a space after the second dollar sign")
+    b = js.bands("Pay: $150,000 USD - $180,000USD in Denver")
+    check(b and b[0][0] == "Pay: in Denver", f"'USD' form: 'USD' written against the second figure is still part of the range ({b})")
+    check(js.bands("Pay: $150,000 US - $180,000 US") == [], "'USD' form: 'US' alone is not read")
+    check(js.bands("Pay: $150,000 USD - 180,000 USD") == [], "'USD' form: no second dollar sign, no range, with 'USD' behind the second figure or not")
+    b = js.bands("Starts at $95,000 USD - $150,000 - $190,000 for senior staff")
+    check([x[1:] for x in b] == [(95000, 150000)], "a known limit: three figures chained with 'USD' after the first are read as the first two")
+
     b = js.bands("The base pay for this position ranges from $105,000/year in our lowest geographic market up to $195,000/year in our highest geographic market.")
     check(b and b[0][1:] == (105000, 195000) and "not a metro band" in b[0][0], f"the from/up-to form is read and labelled ({b})")
     check(js.bands("Pay ranges from $10,000 in our lowest market up to $20,000 in our highest market.") == [], "the from/up-to form keeps the $30,000 bound")
@@ -681,6 +725,183 @@ def test_adapters():
     rows, note = js.avature("https://careers.example.com/portal", RouteSession(), cap=0)
     check(len(rows) == 1 and rows[0]["url"] == "https://careers.example.com/portal/careers/JobDetail/Audit-Lead/123"
           and rows[0]["location"] == "Boulder, CO, US", f"avature: a full base URL, JSON-LD location ({note})")
+
+    # ---- avature, a board that links FolderDetail pages
+    def folder_page(place='"addressCountry":"United States","postalCode":"80000"', fields=(("City", "Boulder"), ("State", "CO"), ("Country", "United States")), extra="", address=None):
+        addr = '"address":%s' % json.dumps(address) if address is not None else '"address":{%s}' % place
+        return ('<html><script type="application/ld+json">{"@type":"JobPosting","title":"x","datePosted":"2026-09-01",%s'
+                '"jobLocation":{"@type":"Place",%s},"description":"Pay $150,000 - $180,000"}</script>' % (extra, addr)
+                + "".join('<div class="article__content__view__field "><div class="article__content__view__field__label"> %s </div>'
+                          '<div class="article__content__view__field__value"> %s </div></div>' % f for f in fields) + "</html>")
+    class AVfolder:
+        """Three jobs to a result page, whatever jobRecordsPerPage says; each job linked twice, first around a picture."""
+        def __init__(self, last=5, titles=None, page=None, both=False, paging=(0,), furniture=False, twice=False, count="", prefix="/careers", slug="Posting-%d", suffix=""):
+            self.lists, self.fetched, self.last, self.titles, self.detail, self.both = [], 0, last, titles or {}, page or folder_page(), both
+            self.paging, self.furniture, self.twice, self.count, self.prefix, self.slug, self.suffix = paging, furniture, twice, count, prefix, slug, suffix
+        def get(self, url, **_):
+            if "SearchJobs" not in url:
+                self.fetched += 1; return Resp(text=self.detail)
+            q = url.split("?")[1]; self.lists.append(q)
+            off = int(q.split("Offset=")[1])
+            if self.both and "jobOffset" in q:
+                return Resp(text='<a href="/careers/JobDetail/Audit-Lead/900">x</a><a href="/careers/FolderDetail/Posting-1/1">Audit Lead</a><a href="/careers/SearchJobs/?folderOffset=3">page</a>' if off == 0
+                            else '<a href="/careers/FolderDetail/Posting-2/2">Audit Lead</a><a href="/careers/FolderDetail/Posting-3/3">Audit Lead</a>')
+            at = lambda i: f"{self.prefix}/FolderDetail/{self.slug % i}/{i}{self.suffix}"
+            page = "".join(f'<a href="{at(i)}"><img src="p.png"></a><h3><a class="link" href="{at(i)}"> {self.titles.get(i, "Audit Lead (%d)" % i)} </a></h3>'
+                           + (f'<a href="https://t.avature.net{at(i)}?from=list">Open</a>' if self.twice else "")
+                           for i in range(off + 1, off + 4) if i <= self.last)
+            page += "".join(f'<a href="/careers/SearchJobs/?folderOffset={n}">page</a>' for n in self.paging)
+            if self.furniture: page += '<a href="/careers/FolderDetail/Tell-us-about-you/9000">Tell us about you</a>'
+            return Resp(text=self.count + page)
+    av = AVfolder(); rows, note = js.avature("t", av, cap=0)
+    check(len(rows) == 5 and av.lists == ["jobRecordsPerPage=12&jobOffset=0", "folderOffset=3", "folderOffset=6"]
+          and "5 jobs listed (FolderDetail links), 5 job pages read" in note and "<--" not in note,
+          f"avature: a board of FolderDetail links is paged with folderOffset; with no paging links, by the jobs on its first page ({av.lists}; {note})")
+    check(rows[0]["title"] == "Audit Lead (1)" and rows[0]["req"] == "1" and rows[0]["url"] == "https://t.avature.net/careers/FolderDetail/Posting-1/1",
+          f"avature: a FolderDetail row's title is the text of its first link that has words ({rows[0]['title']!r})")
+    check(rows[0]["location"] == "Boulder, CO, United States" and js.in_metro(rows[0]["location"]),
+          f"avature: a FolderDetail page's City, State and Country fields are the location when its JSON-LD has no city ({rows[0]['location']!r})")
+    av = AVfolder(paging=(6, 3, 0), furniture=True, count="<p>5 results</p>"); rows, note = js.avature("t", av, cap=0)
+    check([r["req"] for r in rows] == ["1", "2", "3", "9000", "4", "5"] and av.lists[1:] == ["folderOffset=3", "folderOffset=6"],
+          f"avature: the step is the smallest folderOffset above zero on the first page, not the count of jobs it links ({av.lists})")
+    check("the first page says 5 results" in note and "6 jobs listed" in note, f"avature: a count that differs from the board's own is flagged ({note})")
+    av = AVfolder(paging=(0, 40), last=8); rows, note = js.avature("t", av, cap=0)
+    check(len(rows) == 8 and av.lists[1] == "folderOffset=3", f"avature: a folderOffset larger than the jobs on the page (a link to the last page) is not the step ({av.lists})")
+    for count in ("<p>5 results</p>", "<p><b>5</b> Results</p>", "<p>Showing 3 results per page</p><p>5 results</p>"):
+        rows, note = js.avature("t", AVfolder(paging=(3,), count=count), cap=0)
+        check(len(rows) == 5 and "<--" not in note, f"avature: a count that agrees is not flagged ({count})")
+    rows, note = js.avature("t", AVfolder(count="<p>1,204 results</p>"), cap=0)
+    check("says 1204 results" in note, "avature: a printed count with a comma in it is read")
+    rows, note = js.avature("t", AVfolder(count="<p>7 Results</p>"), cap=0)
+    check("says 7 results" in note, f"avature: a count that differs is flagged when the board writes 'Results' with a capital ({note})")
+    rows, note = js.avature("t", AVfolder(count="<p><b>7</b> results</p>"), cap=0)
+    check("says 7 results" in note, f"avature: a count that differs is flagged when its figure sits in a tag of its own ({note})")
+    rows, note = js.avature("t", AVfolder(count="<p>5000 results</p>", last=10 ** 6), cap=7)
+    check("STOPPED at --cap 7" in note and "says" not in note, "avature: a list stopped at a bound is flagged as stopped, not as miscounted")
+    av = AVfolder(twice=True, count="<p>5 results</p>"); rows, note = js.avature("t", av, cap=0)
+    check([r["req"] for r in rows] == ["1", "2", "3", "4", "5"] and rows[0]["url"].endswith("/Posting-1/1") and "<--" not in note and av.lists[1] == "folderOffset=3",
+          f"avature: a job linked under two addresses is one row, known by the number its address ends in ({[r['url'][-14:] for r in rows]})")
+    av = AVfolder(suffix="?lang=en"); rows, note = js.avature("t", av, cap=0)
+    check([r["req"] for r in rows] == ["1", "2", "3", "4", "5"] and rows[0]["title"] == "Audit Lead (1)" and rows[0]["url"].endswith("/Posting-1/1?lang=en"),
+          f"avature: a row's req is the job number when the address goes on after it ({[r['req'] for r in rows]})")
+    av = AVfolder(prefix="/portal/7/careers", slug="2026-Posting-%d"); rows, note = js.avature("https://careers.example.com/portal/7", av, cap=0)
+    check([r["req"] for r in rows] == ["1", "2", "3", "4", "5"], f"avature: the job number is the last part of the address, whatever numbers come before it ({[r['req'] for r in rows]})")
+    av = AVfolder(paging=()); rows, note = js.avature("t", av, cap=0)
+    check(rows == [] and len(av.lists) == 1 and note == "avature t: 0 jobs listed, 0 job pages read",
+          f"avature: FolderDetail links on a first page with no folderOffset in it are page furniture, and the board is empty, as before ({note})")
+    class AVrecords(AVfolder):
+        def get(self, url, **kw):
+            r = AVfolder.get(self, url, **kw)
+            if "SearchJobs" in url: r.text = r.text.replace("folderOffset=0", "folderRecordsPerPage=3")
+            return r
+    rows, note = js.avature("t", AVrecords(), cap=0)
+    check(len(rows) == 5, "avature: 'folderRecordsPerPage=' on the first page marks a FolderDetail board as 'folderOffset=' does")
+    rows, note = js.avature("t", AVfolder(last=1), cap=0)
+    check(len(rows) == 1 and "1 jobs listed (FolderDetail links)" in note, "avature: a FolderDetail board with one job is read")
+    rows, note = js.avature("t", AVfolder(titles={i: "View job" for i in range(1, 6)}), cap=0)
+    check([r["title"] for r in rows][:2] == ["Posting 1", "Posting 2"], f"avature: a text every job of a page shares is a button, and the title comes from the address ({rows[0]['title']!r})")
+    rows, note = js.avature("t", AVfolder(page=folder_page(fields=(("City", "Remote"), ("Country", "United States")))), cap=0)
+    check(rows[0]["location"] == "Remote, United States", "avature: a city and no state")
+    rows, note = js.avature("t", AVfolder(page=folder_page(fields=(("State", "CO"), ("Country", "United States")))), cap=0)
+    check(rows[0]["location"] == "CO, United States", "avature: a state and no city")
+    rows, note = js.avature("t", AVfolder(page=folder_page(fields=(("City", ""), ("City", "<b>Boulder</b>"), ("State", "CO"), ("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "Boulder, CO", "avature: the first City and the first State that are not empty are the ones read, without their tags")
+    rows, note = js.avature("t", AVfolder(page=folder_page('"addressCountry":"US"', (("Country", "United States"),))), cap=0)
+    check(rows[0]["location"] == "US", "avature: a Country field alone does not replace the JSON-LD location")
+    rows, note = js.avature("t", AVfolder(page=folder_page('"addressLocality":"Boulder","addressCountry":"US"', (("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "Boulder, US", "avature: nor do City and State fields when the JSON-LD names a city of its own")
+    rows, note = js.avature("t", AVfolder(page=folder_page('"addressRegion":"CO"', (("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "CO", "avature: or a state of its own")
+    rows, note = js.avature("t", AVfolder(page=folder_page(address="Boulder, CO", fields=(("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "Boulder, CO", "avature: or an address written as one string with a comma in it")
+    rows, note = js.avature("t", AVfolder(page=folder_page(address="United States", fields=(("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "Reno, NV", "avature: an address string with no comma is a country, and the fields are read")
+    rows, note = js.avature("t", AVfolder(page=folder_page(extra='"jobLocationType":"TELECOMMUTE",', fields=(("City", "Reno"), ("State", "NV")))), cap=0)
+    check(rows[0]["location"] == "Reno, NV; Remote" and js.in_metro(rows[0]["location"]), "avature: the JSON-LD's remote mark is kept beside the fields")
+    av = AVfolder(titles={2: "Cook", 4: "", 5: "Audit Lead</a><a href=\"/careers/FolderDetail/Posting-5/5\">Apply"}); rows, note = js.avature("t", av, cap=0, lane=lane)
+    check(av.fetched == 3 and rows[1].get("unread") == "YES" and rows[1]["title"] == "Cook" and rows[3]["title"] == "Posting 4" and rows[3].get("unread") == "YES"
+          and rows[4]["title"] == "Audit Lead",
+          f"avature: the lane is asked of the link's text; a job with no words in any link falls back to the address; a later link's words are not taken ({[r['title'] for r in rows]})")
+    rows, note = js.avature("t", AVfolder(last=10 ** 6), cap=7)
+    check(len(rows) == 7 and "STOPPED at --cap 7" in note, "avature: the cap cuts a FolderDetail page as it cuts any other")
+    rows, note = js.avature("t", AVfolder(last=10 ** 6), cap=0)
+    check(len(rows) == 600 and "STOPPED at the 200-page bound" in note, "avature: the 200-page bound holds for a FolderDetail board")
+    av = AVfolder(both=True); rows, note = js.avature("t", av, cap=0)
+    check([r["req"] for r in rows] == ["900"] and "FolderDetail" not in note and av.lists == ["jobRecordsPerPage=12&jobOffset=0", "jobRecordsPerPage=12&jobOffset=12"],
+          f"avature: a board with a JobDetail link on its first page is read as before, on every page, whatever else that page links ({[r['req'] for r in rows]}; {av.lists})")
+    # ---- avature, FolderDetail: text over several lines, odd addresses, buttons, steps, counts, refusals
+    rows, note = js.avature("t", AVfolder(titles={1: "\n   <b>Audit</b>\n   Lead (1)\n", 2: "Cook"},
+                                          page=folder_page(fields=(("City", "\n  Boulder\n  "), ("State", "\n  CO\n  ")))), cap=0)
+    check(rows[0]["title"] == "Audit Lead (1)" and rows[0]["location"] == "Boulder, CO",
+          f"avature: link text and field values that run over several lines, with tags in them, are read ({rows[0]['title']!r}, {rows[0]['location']!r})")
+    for suffix in ("/", "#apply", "/?lang=en#top"):
+        rows, note = js.avature("t", AVfolder(suffix=suffix, titles={i: "" for i in range(1, 6)}), cap=0)
+        check([r["req"] for r in rows] == ["1", "2", "3", "4", "5"] and [r["title"] for r in rows][:2] == ["Posting 1", "Posting 2"],
+              f"avature: the job number is read before {suffix!r}, and a title from the address is the part before that number ({rows[0]['req']!r}, {rows[0]['title']!r})")
+    check(js._avature_address_title("/careers/FolderDetail/Audit-Lead") == "Audit Lead" and js._avature_address_title("/careers/FolderDetail/Audit-Lead/?x=1") == "Audit Lead"
+          and list(js._avature_folder_jobs('<a href="/careers/FolderDetail/Audit-Lead">Audit Lead</a>')) == ["/careers/FolderDetail/Audit-Lead"],
+          "avature: an address that ends in no number is its own job, and its last part is the title")
+    jobs = js._avature_folder_jobs('<a href="/menu">Menu</a><div data-href="/careers/FolderDetail/Posting-1/1">Card</div> text </a>'
+                                   '<article href="/careers/FolderDetail/Posting-2/2">Card</article><a href="/careers/FolderDetail/Posting-2/2">Clerk</a>')
+    check(jobs == {"1": ["/careers/FolderDetail/Posting-1/1", None], "2": ["/careers/FolderDetail/Posting-2/2", "Clerk"]},
+          f"avature: an address is a job wherever it stands, but only the text of an <a> tag that holds it is its title ({jobs})")
+    rows, note = js.avature("t", AVfolder(last=4, titles={i: "View job" for i in range(1, 5)}), cap=0)
+    check([r["title"] for r in rows] == ["Posting 1", "Posting 2", "Posting 3", "Posting 4"],
+          f"avature: a button text is known on a later page that holds one job ({[r['title'] for r in rows]})")
+    av = AVfolder(paging=(3,), furniture=True, titles={i: "View job" for i in range(1, 6)}); rows, note = js.avature("t", av, cap=0, lane=lane)
+    check([r["title"] for r in rows] == ["Posting 1", "Posting 2", "Posting 3", "Tell us about you", "Posting 4", "Posting 5"],
+          f"avature: a text two jobs share is a button even when another link on the page says something else ({[r['title'] for r in rows]})")
+    rows, note = js.avature("t", AVfolder(titles={1: "Clerk", 2: "Clerk", 3: "Cook", 4: "Clerk"}), cap=0)
+    check([r["title"] for r in rows] == ["Posting 1", "Posting 2", "Cook", "Posting 4", "Audit Lead (5)"],
+          f"avature: only the shared text is dropped, on its page and on later ones ({[r['title'] for r in rows]})")
+    av = AVrecords(furniture=True); rows, note = js.avature("t", av, cap=0)
+    check([r["req"] for r in rows] == ["1", "2", "3", "9000", "4", "5"] and av.lists[1:] == ["folderOffset=3", "folderOffset=6"],
+          f"avature: with no folderOffset above zero, folderRecordsPerPage is the step, so a link that is not a job does not push a job off the list ({av.lists})")
+    class AVrecords50(AVfolder):
+        def get(self, url, **kw):
+            r = AVfolder.get(self, url, **kw)
+            if "SearchJobs" in url: r.text = r.text.replace("folderOffset=0", "folderRecordsPerPage=50&amp;folderRecordsPerPage=0")
+            return r
+    av = AVrecords50(); rows, note = js.avature("t", av, cap=0)
+    check(len(rows) == 5 and av.lists[1] == "folderOffset=3", f"avature: a folderRecordsPerPage of zero, or larger than the jobs on the page, is not the step ({av.lists})")
+    av = AVfolder(paging=(0, 3), count='<a href="/careers/SearchJobs/?folderRecordsPerPage=1">1 a page</a>'); rows, note = js.avature("t", av, cap=0)
+    check(len(rows) == 5 and av.lists[1] == "folderOffset=3", f"avature: a folderOffset on the page is the step before any folderRecordsPerPage is looked at ({av.lists})")
+    rows, note = js.avature("t", AVfolder(count="<p>5 results</p><p>9 results in other places</p>"), cap=0)
+    check("<--" not in note, f"avature: the first 'N results' on the page is the one read ({note})")
+    rows, note = js.avature("t", AVfolder(count="<p>5 results</p>", titles={2: "Cook", 3: "Cook's mate"}), cap=0, lane=lane)
+    check("<--" not in note and "(lane rows only)" in note, f"avature: the count is held against the rows listed, not the job pages read ({note})")
+    rows, note = js.avature("t", AVfolder(last=6, count="<p>6 results</p>"), cap=6)
+    check(len(rows) == 6 and "<--" not in note, f"avature: a list that reaches the cap with exactly the printed count is not called stopped ({note})")
+    rows, note = js.avature("t", AVfolder(last=7, count="<p>7 results</p>"), cap=6)
+    check(len(rows) == 6 and "STOPPED at --cap 6" in note, "avature: one short of the printed count at the cap is still a stop")
+    huge = "9" * 5000
+    av = AVfolder(count=f'<p>{huge} results</p><a href="/careers/SearchJobs/?folderOffset={huge}">last</a><a href="/careers/SearchJobs/?folderRecordsPerPage={huge}">all</a>')
+    rows, note = js.avature("t", av, cap=0)
+    check(len(rows) == 5 and av.lists[1] == "folderOffset=3" and "<--" not in note, f"avature: a figure too long to be a count or an offset is not read as one ({note[:80]})")
+    t0 = time.time()
+    n = len(js._avature_folder_jobs("<a " * 40000 + "".join(f'<a href="/careers/FolderDetail/Posting-{i}/{i}">Clerk' for i in range(20000))))
+    check(n == 20000 and time.time() - t0 < 10, f"avature: a page of tags that never close is read in linear time ({time.time() - t0:.1f} s)")
+    ld = lambda loc: ('<html><script type="application/ld+json">{"@type":"JobPosting","title":"x","jobLocation":%s}</script>' % loc
+                      + folder_page(fields=(("City", "Reno"), ("State", "NV"))).split("</script>")[1])
+    rows, note = js.avature("t", AVfolder(page=ld('[{"@type":"Place","address":{"addressCountry":"US"}},{"@type":"Place","address":{"addressLocality":"Boulder","addressRegion":"CO"}}]')), cap=0)
+    check(rows[0]["location"] == "US; Boulder, CO", f"avature: a JSON-LD city in any place of a list of places keeps the fields out ({rows[0]['location']!r})")
+    rows, note = js.avature("t", AVfolder(page=ld('"Boulder, CO"')), cap=0)
+    check(rows[0]["location"] == "Boulder, CO", f"avature: so does a jobLocation written as one string with a comma ({rows[0]['location']!r})")
+    class AVrefused(AVfolder):
+        def get(self, url, **kw):
+            r = AVfolder.get(self, url, **kw)
+            if "SearchJobs" not in url or "folderOffset=3" in url: r.status_code = 500
+            return r
+    rows, note = js.avature("t", AVrefused(), cap=0)
+    check(len(rows) == 3 and rows[0]["location"] == "" and note == "avature t: HTTP 500 at offset=3 (FolderDetail links; 3 jobs listed before it)",
+          f"avature: a refused job page gives no location from its fields, and a result page refused part-way says what was listed before it ({note})")
+    class AVjobfields:
+        def get(self, url, **_):
+            if "SearchJobs" in url: return Resp(text='<p>40 results</p><a href="/careers/JobDetail/Audit-Lead/1">x</a><a href="/careers/JobDetail/Audit-Lead/1?from=list">y</a>' if "jobOffset=0" in url else "")
+            return Resp(text=folder_page(fields=(("City", "Reno"), ("State", "NV"))))
+    rows, note = js.avature("t", AVjobfields(), cap=0)
+    check(len(rows) == 2 and rows[0]["location"] == "United States" and rows[0]["title"] == "Audit Lead" and "<--" not in note,
+          f"avature: on a JobDetail board the fields, the job numbers and the printed count are not used ({note})")
 
     # ---- amazon
     class AMZ:

@@ -41,7 +41,111 @@ LY = ('            yearly = (str(sal.get("currency") or "USD").upper() == "USD"\
       '                      and "year" in str(sal.get("interval") or "year").lower())')
 TG = "    return bool(ok.search(t)) and not no.search(t)"
 LEVEL = r'''LEVEL = r"(?:TS/SCI|\bTS\b|(?i:top[- ]secret|secret|q clearance|polygraph|ci poly|fs poly))"'''
+N_USDB = r'r"|\s*USD\s*(?:-|–|—|to)\s*\$\s?([\d,]{5,12})(?:\.\d\d(?:\s*USD)?|\s*USD,?)?)", re.I)'
+N_PLAINB = r'r"\$?\s?([\d,]{5,12})(?:\.\d\d)?"' + "\n"
+N_HI = "        ctx, lo, hi = m.group(1), m.group(2), m.group(3) or m.group(4)"
+N_FOLD = "            if jobs and AV_FOLDER_PAGING.search(r.text):"
+N_STEP = "                    if sizes and min(sizes) <= len(jobs):"
+N_STEPS = "                for found in (AV_OFFSET.findall(r.text), AV_PER_PAGE.findall(r.text)):"
+N_SIZES = "                    sizes = [int(n) for n in found if len(n) <= 7 and int(n) > 0]"
+N_TITLE = '                row["title"] = words or _avature_address_title(href)'
+N_MORE = "    if more and not (folder and counted is not None and counted == len(rows)):   # ended on a bound, not on an empty page"
+N_FIELD = """AV_FIELD = re.compile(r'field__label">\\s*(City|State|Country)\\s*</div>\\s*<div class="[^"]*field__value">(.*?)</div>', re.S)"""
+N_REFUSED = ('        if r.status_code != 200:\n            row["_detail"] = f"HTTP {r.status_code}"\n            return row\n'
+             '        row["_detail"] = "ok"\n        if fields: fields(row, r.text)\n')
+N_KEY = "        job = jobs.setdefault(n.group(1) if n else href, [href, None])"
+N_FIRST = "        if pages == 0 and not links:"
+N_AVE = "                enrich_from_page(row, sess, _avature_place if folder else None); time.sleep(PAUSE)"
+N_CNT = "    elif counted is not None and counted != len(rows):"
+N_SAME = "            buttons.update(t for t in texts if texts.count(t) > 1)   # a text two jobs of a page share: a button"
+N_WORDS = "        if end >= 0: job[1] = strip_html(page[gt + 1:end]) or None"
+N_NUM = 'AV_NUMBER = re.compile(r"/(\\d+)/?(?:[?#].*)?$")'
+N_COUNT = 'AV_COUNT = re.compile(r"\\b(\\d[\\d,]{0,11})\\s+results\\b(?!\\s+per\\b)", re.I)'
+N_MARK = 'AV_FOLDER_PAGING = re.compile(r"folder(?:Offset|RecordsPerPage)=")'
 M = [
+ # ---------------- "USD" between the first figure and the dash
+ ("text band: the 'USD' form not read", J, N_USDB, N_USDB.replace(r"|\s*USD\s*(?:-|–|—|to)", r"|\s*USDX\s*(?:-|–|—|to)")),
+ ("text band: any currency code after the first figure read", J, N_USDB, N_USDB.replace(r"|\s*USD\s*(?:-", r"|\s*[A-Z]{3}\s*(?:-")),
+ ("text band: 'USD' after the second figure of that form left in the text", J, N_USDB, N_USDB.replace(r"(?:\.\d\d(?:\s*USD)?|\s*USD,?)?)", r"(?:\.\d\d)?)")),
+ ("text band: the second figure of that form may lack its dollar sign", J, N_USDB, N_USDB.replace(r"\s*\$\s?([\d", r"\s*\$?\s?([\d")),
+ ("text band: 'to' not a joiner in that form", J, N_USDB, N_USDB.replace("(?:-|–|—|to)", "(?:-|–|—)")),
+ ("text band: 'USD' after the second figure of a plain range taken into the match", J, N_PLAINB, N_PLAINB.replace('?"', '?(?:\\s*USD)?"')),
+ ("text band: the second figure of the 'USD' form not read", J, N_HI, N_HI.replace("m.group(3) or m.group(4)", "m.group(3)")),
+ # ---------------- avature, FolderDetail boards
+ ("avature: FolderDetail boards not recognised", J, N_FOLD, "            if False:"),
+ ("avature: FolderDetail links read as jobs on a page with no folderOffset", J, N_FOLD, "            if jobs:"),
+ ("avature: 'folderRecordsPerPage=' is not a mark of a FolderDetail board", J, N_MARK, N_MARK.replace("(?:Offset|RecordsPerPage)", "Offset")),
+ ("avature: 'folderOffset=' is not a mark of a FolderDetail board", J, N_MARK, N_MARK.replace("(?:Offset|RecordsPerPage)", "RecordsPerPage")),
+ ("avature: a FolderDetail board paged by the jobs on its page, paging links or not", J, N_STEP, "                    if False:"),
+ ("avature: a folderOffset larger than the page taken as the step", J, N_STEP, "                    if sizes:"),
+ ("avature: the largest folderOffset taken as the step", J, "                        step = min(sizes); break", "                        step = max(sizes); break"),
+ ("avature: folderOffset=0 taken as the step", J, N_SIZES, N_SIZES.replace(" and int(n) > 0", "")),
+ ("avature: a FolderDetail board paged with jobOffset", J, '        query = f"folderOffset={off}" if folder else f"jobRecordsPerPage=12&jobOffset={off}"', '        query = f"jobRecordsPerPage=12&jobOffset={off}"'),
+ ("avature: a board with both kinds of link read as a FolderDetail board", J, N_FIRST, "        if pages == 0:"),
+ ("avature: a later page with no JobDetail link turns the board into a FolderDetail board", J, N_FIRST, "        if not links:"),
+ ("avature: a FolderDetail board's later pages not read", J, "        elif folder:\n", "        elif False:\n"),
+ ("avature: a job linked under two addresses listed twice", J, N_KEY, "        job = jobs.setdefault(href, [href, None])"),
+ ("avature: the last address of a job kept, not the first", J, N_KEY, N_KEY + "; job[0] = href"),
+ ("avature: the job number is the first number in the address", J, N_NUM, 'AV_NUMBER = re.compile(r"/(\\d+)")'),
+ ("avature: a job number followed by ? is not read", J, N_NUM, 'AV_NUMBER = re.compile(r"/(\\d+)/?$")'),
+ ("avature: the row's req not set from the job number", J, '                if link != href: row["req"] = link\n', ""),
+ ("avature: FolderDetail titles from the address", J, N_TITLE, '                row["title"] = _avature_address_title(href)'),
+ ("avature: a picture link's empty text taken as the title", J, N_WORDS, N_WORDS.replace(" or None", "")),
+ ("avature: a later link's words taken as the title", J, "        if job[1] is not None: continue\n", ""),
+ ("avature: a title every job shares is kept", J, N_SAME, N_SAME.replace("texts.count(t) > 1)", "False)")),
+ ("avature: City and State fields not read", J, N_AVE, N_AVE.replace("_avature_place if folder else None", "None")),
+ ("avature: City and State fields read on a JobDetail board", J, N_AVE, N_AVE.replace("_avature_place if folder else None", "_avature_place")),
+ ("avature: a Country field alone replaces the location", J, '    if got.get("City") or got.get("State"):', "    if got:"),
+ ("avature: a State field alone is not enough", J, '    if got.get("City") or got.get("State"):', '    if got.get("City"):'),
+ ("avature: the State field left out", J, 'for k in ("City", "State", "Country") if got.get(k))', 'for k in ("City", "Country") if got.get(k))'),
+ ("avature: the last City field read, not the first", J, "        if strip_html(v): got.setdefault(k, strip_html(v))", "        if strip_html(v): got[k] = strip_html(v)"),
+ ("avature: an empty first City field hides a later one", J, "        if strip_html(v): got.setdefault(k, strip_html(v))", "        got.setdefault(k, strip_html(v))"),
+ ("avature: tags kept in a field's value", J, "        if strip_html(v): got.setdefault(k, strip_html(v))", "        if strip_html(v): got.setdefault(k, v.strip())"),
+ ("avature: the fields replace a JSON-LD city", J, '        if isinstance(a, dict) and (a.get("addressLocality") or a.get("addressRegion")): return', '        if isinstance(a, dict) and a.get("addressRegion"): return'),
+ ("avature: the fields replace a JSON-LD state", J, '        if isinstance(a, dict) and (a.get("addressLocality") or a.get("addressRegion")): return', '        if isinstance(a, dict) and a.get("addressLocality"): return'),
+ ("avature: the fields replace an address written as one string", J, '        if isinstance(a, str) and "," in a: return\n', ""),
+ ("avature: an address string with no comma hides the fields", J, '        if isinstance(a, str) and "," in a: return', "        if isinstance(a, str): return"),
+ ("avature: the JSON-LD remote mark dropped beside the fields", J, '        if str(jp.get("jobLocationType", "")).upper() == "TELECOMMUTE": row["location"] += "; Remote"\n', ""),
+ ("avature: FolderDetail not said in the note", J, '(" (FolderDetail links)" if folder else "")', '""'),
+ ("avature: a count that differs from the board's own not flagged", J, N_CNT, "    elif False:"),
+ ("avature: a count that agrees flagged", J, N_CNT, "    elif counted is not None:"),
+ ("avature: a list stopped at a bound flagged as miscounted", J, N_CNT, "    if counted is not None and counted != len(rows):"),
+ ("avature: 'N results per page' read as the count", J, N_COUNT, N_COUNT.replace("(?!\\s+per\\b)", "")),
+ ("avature: a count with a comma not read", J, N_COUNT, N_COUNT.replace("(\\d[\\d,]{0,11})", "(\\d{1,12})")),
+ ("avature: 'Results' with a capital not read", J, N_COUNT, N_COUNT.replace('", re.I)', '")')),
+ ("avature: the count looked for in the raw page", J, "                printed = AV_COUNT.search(strip_html(r.text))", "                printed = AV_COUNT.search(r.text)"),
+ ("enrich: the fields reader not called", J, "        if fields: fields(row, r.text)\n", ""),
+ # ---------------- the 'USD' form and FolderDetail boards, second pass
+ ("text band: a comma after the last 'USD' left outside the range", J, N_USDB, N_USDB.replace(r"|\s*USD,?)?)", r"|\s*USD)?)")),
+ ("text band: an en dash not a joiner in the 'USD' form", J, N_USDB, N_USDB.replace("(?:-|–|—|to)", "(?:-|—|to)")),
+ ("text band: an em dash not a joiner in the 'USD' form", J, N_USDB, N_USDB.replace("(?:-|–|—|to)", "(?:-|–|to)")),
+ ("text band: cents on the second figure of the 'USD' form not taken in", J, N_USDB, N_USDB.replace(r"(?:\.\d\d(?:\s*USD)?|\s*USD,?)?)", r"(?:\s*USD,?)?)")),
+ ("text band: 'USD' behind cents on the second figure left in the text", J, N_USDB, N_USDB.replace(r"(?:\.\d\d(?:\s*USD)?|", r"(?:\.\d\d|")),
+ ("text band: a comma behind cents and 'USD' taken into the range", J, N_USDB, N_USDB.replace(r"(?:\.\d\d(?:\s*USD)?|", r"(?:\.\d\d(?:\s*USD,?)?|")),
+ ("text band: no space allowed after the second dollar sign of the 'USD' form", J, N_USDB, N_USDB.replace(r"\s*\$\s?([\d", r"\s*\$([\d")),
+ ("text band: 'USD' written against the second figure left in the text", J, N_USDB, N_USDB.replace(r"|\s*USD,?)?)", r"|\s+USD,?)?)")),
+ ("text band: 'US' alone read as 'USD'", J, N_USDB, N_USDB.replace(r"|\s*USD\s*(?:-", r"|\s*USD?\s*(?:-")),
+ ("avature: folderRecordsPerPage not looked at for the step", J, N_STEPS, "                for found in (AV_OFFSET.findall(r.text),):"),
+ ("avature: folderRecordsPerPage looked at before folderOffset", J, N_STEPS, "                for found in (AV_PER_PAGE.findall(r.text), AV_OFFSET.findall(r.text)):"),
+ ("avature: a figure of any length read as a step", J, N_SIZES, N_SIZES.replace("len(n) <= 7 and ", "")),
+ ("avature: a figure of any length read as the count", J, N_COUNT, N_COUNT.replace("(\\d[\\d,]{0,11})", "(\\d[\\d,]*)")),
+ ("avature: a job number followed by / is not read", J, N_NUM, 'AV_NUMBER = re.compile(r"/(\\d+)(?:[?#].*)?$")'),
+ ("avature: a job number followed by # is not read", J, N_NUM, 'AV_NUMBER = re.compile(r"/(\\d+)/?(?:[?].*)?$")'),
+ ("avature: a row with no words keeps the JobDetail title rule", J, N_TITLE, '                if words: row["title"] = words'),
+ ("avature: the job number taken as the title from the address", J, '    if len(parts) > 1 and parts[-1].isdigit(): parts.pop()\n', ""),
+ ("avature: ? and # left in a title from the address", J, '    parts = re.split(r"[?#]", href)[0].rstrip("/").split("/")', '    parts = href.rstrip("/").split("/")'),
+ ("avature: tags kept in a title", J, N_WORDS, N_WORDS.replace("strip_html(page[gt + 1:end]) or None", "page[gt + 1:end].strip() or None")),
+ ("avature: the words of a tag that is not <a> taken as a title", J, "not page[a + 2:a + 3].isspace() or ", ""),
+ ("avature: words taken for an address that stands outside its tag", J, ' or ">" in page[a:m.start()]: continue', ": continue"),
+ ("avature: every link text is a button", J, N_SAME, N_SAME.replace("texts.count(t) > 1)", "texts.count(t) > 0)")),
+ ("avature: a text is a button only when three jobs share it", J, N_SAME, N_SAME.replace("texts.count(t) > 1)", "texts.count(t) > 2)")),
+ ("avature: a button text forgotten on later pages", J, N_SAME, N_SAME.replace("buttons.update(t for t in texts if texts.count(t) > 1)", "buttons = {t for t in texts if texts.count(t) > 1}")),
+ ("avature: a list at the cap with the printed count called stopped", J, N_MORE, "    if more:"),
+ ("avature: a result page refused part-way does not say what was listed", J, '            listed = f" (FolderDetail links; {len(rows)} jobs listed before it)" if folder else ""', '            listed = ""'),
+ ("avature: field values on more than one line not read", J, N_FIELD, N_FIELD.replace(", re.S)", ")")),
+ ("avature: only the first JSON-LD place looked at", J, "    for l in (locs if isinstance(locs, list) else [locs]):", "    for l in (locs if isinstance(locs, list) else [locs])[:1]:"),
+ ("avature: a jobLocation written as a plain string not looked at", J, '        a = l.get("address") if isinstance(l, dict) else l', '        a = l.get("address") if isinstance(l, dict) else None'),
+ ("enrich: the fields reader called for a refused page", J, N_REFUSED, '        if fields: fields(row, r.text)\n' + N_REFUSED.replace('        if fields: fields(row, r.text)\n', "")),
  # ---------------- bands
  ("text band: lower bound off", J, BAND, BAND.replace("30_000", "3_000")),
  ("text band: upper bound off", J, BAND, BAND.replace("2_000_000", "2_000_000_000")),
@@ -193,8 +297,8 @@ M = [
  ("workday: failed detail clears unread", J, "            if dr.status_code == 200:\n                info", "            if True:\n                info"),
  ("workday: lane filter off", J, '        if not lane or not lane.search(row["title"]) or (cap and n >= cap): continue', "        if not lane or (cap and n >= cap): continue"),
  ("workday: detail read without --lane", J, '        if not lane or not lane.search(row["title"]) or (cap and n >= cap): continue', '        if (lane and not lane.search(row["title"])) or (cap and n >= cap): continue'),
- ("avature: 200-page bound off", J, "    while (not cap or off < cap) and off < 12 * 200:", "    while (not cap or off < cap):"),
- ("avature: stop not flagged", J, "    if more:   # the loop ended on a bound, not on an empty page", "    if False:"),
+ ("avature: 200-page bound off", J, "    while (not cap or off < cap) and pages < 200:", "    while (not cap or off < cap):"),
+ ("avature: stop not flagged", J, N_MORE, "    if False:"),
  ("avature: lane skip off", J, '            if lane and not lane.search(row["title"]):', "            if False:"),
  ("avature: failed reads counted as read", J, '    n = sum(1 for r in rows if r.get("_detail") == "ok")\n    stop = ""', '    n = len(rows)\n    stop = ""'),
  ("phenom: no pause between POSTs", J, "        if calls[0]: time.sleep(PAUSE)\n", ""),
@@ -296,7 +400,7 @@ M = [
  ('verdict: obtaining read before active', J, '    if CLR_ACTIVE.search(t or ""): return "ACTIVE REQUIRED"\n    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"', '    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"\n    if CLR_ACTIVE.search(t or ""): return "ACTIVE REQUIRED"'),
  ('verdict: the title not read', J, '            hay = f"{r[\'title\']} {r[\'text\']}"', "            hay = r['text']"),
  ('script and style bodies read as text', J, '    s = re.sub(r"<(script|style)[^>]*>.*?</\\1>", " ", s, flags=re.S | re.I)\n', ''),
- ("text band: 'to' not a joiner", J, '(?:\\.\\d\\d)?\\s*(?:-|–|—|to)\\s*"', '(?:\\.\\d\\d)?\\s*(?:-|–|—)\\s*"'),
+ ("text band: 'to' not a joiner", J, '(?:\\.\\d\\d)?(?:\\s*(?:-|–|—|to)\\s*"', '(?:\\.\\d\\d)?(?:\\s*(?:-|–|—)\\s*"'),
  ('not-salary words: relocation', J, 'rsus?|relocation|commission|incentive|stipend|allowance)\\b", re.I)', 'rsus?|commission|incentive|stipend|allowance)\\b", re.I)'),
  ('not-salary words: commission', J, 'rsus?|relocation|commission|incentive|stipend|allowance)\\b", re.I)', 'rsus?|relocation|incentive|stipend|allowance)\\b", re.I)'),
  ('not-salary words: stipend', J, 'rsus?|relocation|commission|incentive|stipend|allowance)\\b", re.I)', 'rsus?|relocation|commission|incentive|allowance)\\b", re.I)'),
