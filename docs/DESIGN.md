@@ -388,16 +388,18 @@ fixed here:
   seen (five jobs on one page, a step of three and `--cap 4`). A list that reaches `--cap` with
   exactly the printed number of rows is taken for complete even when one of those rows is a
   link that is not a job and a job is missing. A board that prints no "N results" line is
-  flagged as stopped, although it is complete, whenever it still has jobs at the last offset
-  read below `--cap` (380 jobs, a step of 25 and `--cap 400`).
+  flagged as stopped, even when it is complete, whenever the page at the last offset below
+  `--cap` is read and holds a job not seen before (380 jobs, 25 to a page, a step of 25 and
+  `--cap 400`).
 - More on a `FolderDetail` Avature board. When the first result page links `FolderDetail`
   pages and a later one links `JobDetail` pages, the later pages' jobs are not listed. A job
-  whose addresses end in no number is listed once for each address it is linked under; when
-  the step is taken from the number of jobs on the first page, it is then too long and jobs
-  are missed. An address that is a number and nothing else, with no words in
-  its link, gets the title "Folderdetail". A result page with tens of thousands of links takes
-  seconds to read, and a first result page with tens of thousands of script tags that never
-  close can take about a minute.
+  whose addresses end in no number is listed once for each address it is linked under. When
+  such a job is linked under two or more addresses on the first result page and the step is
+  taken from the number of jobs on that page, the step is too long, and a board with more than
+  one result page then has jobs missed. An address that is a number and nothing else, with no
+  words in its link, gets the title "Folderdetail". A result page with tens of thousands of
+  links takes seconds to read, and a first result page with tens of thousands of script tags
+  that never close can take about a minute.
 - The census quotes "$50,000 and $60,000" as a range whatever the words around it say.
 - robots.txt and site terms are not read by the code. `offlimits` entries are how a person records
   that a site is ruled out.
