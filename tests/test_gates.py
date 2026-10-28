@@ -391,6 +391,29 @@ def test_gates():
     check(js.clearance_verdict("Secret clearance required. Must be able to obtain a CPA license within one year.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Must be able to obtain one year of experience. Secret clearance required.") == "ACTIVE REQUIRED",
           "clearance: obtaining something else in the next or previous clause does not excuse a requirement ('one' of a year)")
+    check(js.clearance_verdict("Secret clearance required. Must be able to obtain and maintain it.") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance required. Must be able to obtain and maintain one.") == "OBTAINABLE"
+          and js.clearance_verdict("Top Secret clearance required. Candidates must be able to obtain and hold it.") == "OBTAINABLE"
+          and js.clearance_verdict("Top Secret clearance required. Candidates must be able to obtain/maintain it.") == "OBTAINABLE",
+          "clearance: 'obtain and maintain it', 'obtain and hold it' and 'obtain/maintain it' in the next clause keep it OBTAINABLE")
+    check(js.clearance_verdict("Secret clearance required. Must obtain and maintain a CPA license within one year.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required. Must obtain one of the following certifications: CISSP.") == "ACTIVE REQUIRED",
+          "clearance: obtaining and maintaining something else, or 'one of' a list, does not excuse a requirement")
+    check(js.clearance_verdict("TS/SCI Required: Not at this time.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: Not applicable") == "NONE STATED",
+          "clearance: a labelled field answered 'Not at this time' or 'Not applicable' is NONE STATED")
+    check(js.clearance_verdict("Secret Clearance Required: no less than Secret") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No later than the first day of work.") == "ACTIVE REQUIRED",
+          "clearance: a field whose answer only starts with 'No' ('no less than', 'No later than') keeps its requirement")
+    check(js.clearance_verdict("TS/SCI required and polygraph not required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("No TS/SCI? A Secret clearance is required.") == "ACTIVE REQUIRED",
+          "clearance: 'not required' does not run back past another 'required', and 'No ...?' ends at the question mark")
+    check(js.clearance_verdict("Active TS/SCI clearance, relocation not required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active TS/SCI clearance but relocation not required.") == "ACTIVE REQUIRED",
+          "clearance: 'not required' stops at a comma or 'but' with no other 'required' in between")
+    check(js.clearance_verdict("Secret clearance required and we do not offer sponsorship.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required and candidates requiring sponsorship will not be considered.") == "ACTIVE REQUIRED",
+          "clearance: sponsorship that is not offered, or asked of the candidate, does not excuse a requirement")
     check(js.clearance_verdict("Secret clearance required, and the company does not sponsor visas.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret clearance required with no sponsorship available.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret clearance required and visa sponsorship is available.") == "ACTIVE REQUIRED"

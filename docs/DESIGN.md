@@ -138,14 +138,16 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 a clause ends at a period or a semicolon) one of "obtain", "ability/able/eligible to obtain",
 "eligible for", "within N days/weeks/months", "after hire" or "following an offer", "can be
 obtained/sponsored", or "sponsor" when it is offered and is not visa sponsorship ("we sponsor
-it" counts; "does not sponsor visas", "no sponsorship", "visa sponsorship is available" and
-"sponsorship is not available" do not); or, in the clause just before or just after, obtaining
-that names the clearance ("Must be able to obtain a security clearance. Secret clearance
-required.") or says "it" or "one" directly after "obtain" ("must be able to obtain it after an
-offer"), and names no other level ("Ability to obtain a Secret clearance. Top Secret clearance
+it" counts; "does not sponsor visas", "no sponsorship", "visa sponsorship is available",
+"sponsorship is not available", "we do not offer sponsorship" and "candidates requiring
+sponsorship" do not); or, in the clause just before or just after, obtaining that names the
+clearance ("Must be able to obtain a security clearance. Secret clearance required.") or says
+"it" or "one" directly after "obtain", or after "obtain and maintain", "obtain and hold",
+"obtain and keep" or "obtain/maintain" ("must be able to obtain it after an offer", "must be
+able to obtain and maintain one"), and names no other level ("Ability to obtain a Secret clearance. Top Secret clearance
 is required." stays `ACTIVE REQUIRED`). Obtaining something else in that clause does not count:
-"Secret clearance required. Must be able to obtain a CPA license within one year." stays
-`ACTIVE REQUIRED`. The gap between the level and "required" stops at a comma (", or
+"Secret clearance required. Must be able to obtain a CPA license within one year." and "...
+Must obtain one of the following certifications" stay `ACTIVE REQUIRED`. The gap between the level and "required" stops at a comma (", or
 higher," excepted), a semicolon, "but", or "preferred", "desired" or "plus": "Secret clearance
 preferred, degree required" is not a requirement.
 
@@ -153,10 +155,13 @@ Wording that says a clearance is not asked for is set aside before the `ACTIVE R
 run: "No active clearance is required", "A Top Secret clearance is not required", "does not
 require a Secret clearance"; TS/SCI and Top Secret without the word "clearance" ("No TS/SCI
 required", "TS/SCI is not required", "No Top Secret required"); and a labelled field answered
-No, None or N/A ("Secret Clearance Required: No"). A field answered "No exceptions" keeps its
-requirement. The gap stops at a
-comma, a semicolon or "but", so "Active Secret clearance required, relocation not required"
-keeps its requirement.
+No, None, N/A, "Not at this time", "Not currently" or "Not applicable" ("Secret Clearance
+Required: No"). The answer must end the field (a punctuation mark, a bracket or the end of the
+text follows it), so "No exceptions", "no less than Secret" and "No later than the first day"
+keep the requirement. The gap stops at a comma, a semicolon, a question mark, an exclamation
+mark, "but", or another "required", "needed" or "necessary", so "Active Secret clearance
+required, relocation not required", "TS/SCI required and polygraph not required" and "No TS/SCI?
+A Secret clearance is required." keep their requirement.
 
 `clearance.when_active_required` decides whether an `ACTIVE REQUIRED` posting is dropped or kept.
 Kept, it is written with its verdict. Dropped, it is in no output file; the run prints how many
@@ -231,10 +236,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 554 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 561 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 452 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 459 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
