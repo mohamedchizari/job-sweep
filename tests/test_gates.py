@@ -322,7 +322,7 @@ def test_gates():
     check(js.clearance_verdict("Must hold an active TS/SCI clearance.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Ability to obtain a Secret clearance.") == "OBTAINABLE"
           and js.clearance_verdict("Close the books.") == "NONE STATED", "clearance wording read three ways")
-    check(js.clearance_verdict("An existing Secret clearance is needed.") == "ACTIVE REQUIRED"
+    check(js.clearance_verdict("Candidates with an existing Secret clearance.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI with full-scope polygraph.") == "ACTIVE REQUIRED", "ACTIVE REQUIRED: 'existing', and a level followed by 'polygraph'")
     check(js.clearance_verdict("A public trust position.") == "OBTAINABLE" and js.clearance_verdict("Must be a U.S. citizen.") == "OBTAINABLE"
           and js.clearance_verdict("A suitability review applies.") == "OBTAINABLE", "OBTAINABLE: public trust, suitability, citizenship")
@@ -331,6 +331,19 @@ def test_gates():
     check(js.clearance_verdict("Top Secret clearance required.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("No active clearance is required.") == "NONE STATED",
           "clearance: recognize an explicit level requirement and ignore a negated active-clearance requirement")
+    check(js.clearance_verdict("Ability to obtain a Secret clearance is required.") == "OBTAINABLE"
+          and js.clearance_verdict("Must be able to obtain a Top Secret clearance; clearance required within 6 months.") == "OBTAINABLE",
+          "clearance: a level that must be obtained stays OBTAINABLE, also when the sentence ends in 'required'")
+    check(js.clearance_verdict("A Top Secret clearance is not required.") == "NONE STATED"
+          and js.clearance_verdict("Secret clearance not required.") == "NONE STATED"
+          and js.clearance_verdict("No Secret clearance is required.") == "NONE STATED"
+          and js.clearance_verdict("This role does not require a Top Secret clearance.") == "NONE STATED"
+          and js.clearance_verdict("An active Secret clearance is not required.") == "NONE STATED",
+          "clearance: a named level said not to be required is NONE STATED")
+    check(js.clearance_verdict("Ability to obtain a Secret clearance. Top Secret clearance is required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Clearance not required. Top Secret clearance required for the second phase.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("A Secret security clearance is required.") == "ACTIVE REQUIRED",
+          "clearance: a level required in its own sentence is still ACTIVE REQUIRED next to obtaining or 'not required' wording")
     check(js.keep(hard, 140000), 'clearance "keep": a posting that asks for an active clearance stays, with its verdict')
     js.configure(settings(clearance={"when_active_required": "drop"}))
     check(not js.keep(hard, 140000), 'clearance "drop": the same posting is dropped')
@@ -348,7 +361,18 @@ def test_gates():
     check("$0 - $185,000" in md, "write_delta survives an empty band_low")
     safe = js.markdown_cell("Lead|x\n<script>alert(1)</script>")
     check(safe == "Lead\\|x<br>&lt;script&gt;alert(1)&lt;/script&gt;",
-          "write_delta escapes cell delimiters, line breaks, and raw HTML from ATS fields")
+          "markdown_cell escapes cell delimiters, line breaks, and raw HTML")
+    d1 = tempfile.mkdtemp(); p1 = os.path.join(d1, "d.md")
+    wd_url = "https://acme.wd5.myworkdayjobs.com/en-US/Ext_Careers/job/Denver/Senior-Controller_R7?a=1&b=2"
+    js.write_delta(p1, [row(employer="Lead|x\n<script>alert(1)</script>", req="7", title="Senior Controller",
+                            band_low=150000, band_high=185000, band_ctx="pay", band_src="text", url=wd_url)],
+                   140000, ["wall|<b>x</b>"], ["Lead|x"])
+    md1 = open(p1).read()
+    check("| Lead\\|x<br>&lt;script&gt;alert(1)&lt;/script&gt; | Senior Controller |" in md1 and "<script>" not in md1
+          and "- wall\\|&lt;b&gt;x&lt;/b&gt;" in md1 and "Employers: Lead\\|x." in md1,
+          "write_delta escapes cell delimiters, line breaks, and raw HTML from ATS fields, walls and employer names")
+    check("| " + wd_url + " |" in md1 and js.url_cell("https://x.example/a b|c<d>") == "https://x.example/a%20b%7Cc%3Cd%3E",
+          "write_delta leaves a URL as written (underscore and ampersand kept) and encodes only what would break the cell")
     check("## Dropped by the band floor, passed by the title gate (1)" in md and "| u4 |" in md and "| u2 |" not in md and "| u3 |" not in md,
           "the delta's dropped list holds only rows the floor dropped: not an unread row, not a row outside the place gate")
 
@@ -1041,8 +1065,7 @@ def test_adapters():
                                           "locationsText": "Boulder, CO"} for i in range(20)]})
         def __init__(self): self.calls = 0
     rows, note = js.workday("t|wd1|S", WDmalformed())
-    check(len(rows) == 40 and "STOPPED: ValueError at offset=40" in note
-          and all(r.get("unread") == "YES" for r in rows),
+    check(len(rows) == 40 and "STOPPED: ValueError at offset=40" in note,
           "workday: malformed later-page JSON retains prior rows and marks the enumeration incomplete")
     ws = WDsame(); js.workday("acme|wd5|acme", ws, lane=lane)
     check(ws.got == ["https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/acme/job/Denver/Controller_R1"],

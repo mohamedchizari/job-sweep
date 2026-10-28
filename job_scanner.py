@@ -69,13 +69,20 @@ CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(curren
 CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen)", re.I)
+# Wording that says a clearance is NOT asked for. It is cut from the text before the ACTIVE tests run, so
+# "A Top Secret clearance is not required" or "No Secret clearance is required" is not read as a requirement.
+_CLR_NOUN = r"(?:(?:active|current|existing)\s+)?(?:(?:ts/sci|top secret|secret)\s+)?(?:security\s+)?clearance"
 CLR_NOT_REQUIRED = re.compile(
-    r"\bno\s+(?:active\s+|current\s+|existing\s+)?clearance\b[^.;]{0,40}\b(?:required|needed|necessary)\b"
-    r"|\b(?:active|current)\s+clearance\b[^.;]{0,25}\bnot\s+(?:required|needed|necessary)\b"
-    r"|\bdoes not require\s+(?:an?\s+)?(?:active\s+)?clearance\b", re.I)
+    r"\bno\s+" + _CLR_NOUN + r"\b[^.;]{0,40}\b(?:required|needed|necessary)\b"
+    r"|\b" + _CLR_NOUN + r"\b[^.;]{0,25}\bnot\s+(?:required|needed|necessary)\b"
+    r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b", re.I)
+# A named level followed by "required" or "needed": "Top Secret clearance required". It counts as ACTIVE only
+# when the same sentence does not speak of obtaining it first ("Ability to obtain a Secret clearance is
+# required" stays OBTAINABLE).
 CLR_LEVEL_REQUIRED = re.compile(
     r"\b(?:ts/sci|top secret|secret)\s+(?:security\s+)?clearance\b[^.;]{0,35}\b(?:is\s+)?(?:required|needed)\b",
     re.I)
+CLR_OBTAIN_LEAD = re.compile(r"\b(?:abilit\w*|able|eligib\w*|obtain\w*)\b", re.I)
 
 # Two forms. "$150,000 - $180,000", and the same with "USD" between the first figure and the dash, where "USD" may
 # follow the second figure too: "$150,000 USD - $180,000 USD". No other currency code is read after the first
@@ -252,9 +259,16 @@ def greenhouse_band(pay_input_ranges):
     ctx, lo, hi = pick_range(ranges)
     return (ctx, lo, hi) if hi else None
 
+def level_required(text):
+    """A named level said to be required, in a sentence that does not first speak of obtaining it."""
+    for m in CLR_LEVEL_REQUIRED.finditer(text):
+        start = max(text.rfind(".", 0, m.start()), text.rfind(";", 0, m.start())) + 1
+        if not CLR_OBTAIN_LEAD.search(text[start:m.start()]): return True
+    return False
+
 def clearance_verdict(t):
     text = CLR_NOT_REQUIRED.sub("", t or "")
-    if CLR_ACTIVE.search(text) or CLR_LEVEL_REQUIRED.search(text): return "ACTIVE REQUIRED"
+    if CLR_ACTIVE.search(text) or level_required(text): return "ACTIVE REQUIRED"
     if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"
     return "NONE STATED"
 
@@ -1273,6 +1287,15 @@ def markdown_cell(value):
     return text.replace("|", r"\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
+def url_cell(value):
+    """A URL in a Markdown cell, left as written so it can be copied and followed. Only what would end
+    the cell or the line, or open an HTML tag, is percent-encoded; nothing is escaped with a backslash."""
+    text = str(value or "").replace("\r", "").replace("\n", "").replace("\t", "")
+    for ch, enc in (("|", "%7C"), ("<", "%3C"), (">", "%3E"), (" ", "%20"), ("`", "%60")):
+        text = text.replace(ch, enc)
+    return text
+
+
 def write_delta(path, uniq, floor, walls, employers):
     """The band gate against the title-word gate, on the same enumeration."""
     new = [r for r in uniq if keep(r, floor)]
@@ -1284,8 +1307,9 @@ def write_delta(path, uniq, floor, walls, employers):
         bh = band_high(r)
         band = (f"${int(r['band_low'] or 0):,} - ${bh:,} ({r['band_src']}: {r['band_ctx']})"
                 if bh else "no band published")
-        return "| " + " | ".join(markdown_cell(v) for v in
-                                 (r["employer"], r["title"], r["location"], band, r["clearance"], r["url"])) + " |"
+        return "| " + " | ".join([markdown_cell(v) for v in
+                                  (r["employer"], r["title"], r["location"], band, r["clearance"])]
+                                 + [url_cell(r["url"])]) + " |"
     hdr = "| employer | title | location | band read | clearance verdict | url |\n|---|---|---|---|---|---|"
     out = [f"# Gate delta, band floor ${floor:,}, {date.today().isoformat()}", "",
            f"Employers: {', '.join(markdown_cell(e) for e in employers)}. Enumerated {len(uniq)}; pass the band gate {len(new)}; "
