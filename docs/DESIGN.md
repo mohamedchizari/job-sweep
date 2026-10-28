@@ -156,9 +156,11 @@ run: "No active clearance is required", "A Top Secret clearance is not required"
 require a Secret clearance"; TS/SCI and Top Secret without the word "clearance" ("No TS/SCI
 required", "TS/SCI is not required", "No Top Secret required"); and a labelled field answered
 No, None, N/A, "Not at this time", "Not currently" or "Not applicable" ("Secret Clearance
-Required: No"). The answer must end the field (a punctuation mark, a bracket or the end of the
-text follows it), so "No exceptions", "no less than Secret" and "No later than the first day"
-keep the requirement. The gap stops at a comma, a semicolon, a question mark, an exclamation
+Required: No", "Top Secret Clearance Required: Not required"). The answer counts unless a word
+that changes it follows ("exceptions", "waivers", "substitutes", "less", "later", "fewer",
+"sooner", "earlier", "more", "than"), so "No exceptions", "no less than Secret" and "No later than
+the first day" keep the requirement, while "Secret Clearance Required: No Telework: Yes", where
+the next label follows on the same line once HTML loses the line break, is an answer of No. The gap stops at a comma, a semicolon, a question mark, an exclamation
 mark, "but", or another "required", "needed" or "necessary", so "Active Secret clearance
 required, relocation not required", "TS/SCI required and polygraph not required" and "No TS/SCI?
 A Secret clearance is required." keep their requirement.
@@ -236,10 +238,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 561 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 564 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 459 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 461 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
