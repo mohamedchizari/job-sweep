@@ -74,16 +74,18 @@ CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtai
 # "A Top Secret clearance is not required", "No Secret clearance is required", "No TS/SCI required" or the
 # labelled field "Secret Clearance Required: No" is not read as a requirement. TS/SCI and Top Secret count
 # without the word "clearance" (a bare "Secret" is never read as a level). The gap never crosses a comma,
-# a semicolon or "but", so a later clause keeps its own requirement: "Active Secret clearance required,
-# relocation not required" stays ACTIVE. A field answered "No exceptions" is not an answer of No.
+# a semicolon, a question or exclamation mark, "but", or another "required"/"needed"/"necessary", so a later
+# clause keeps its own requirement: "Active Secret clearance required, relocation not required" and "TS/SCI
+# required and polygraph not required" stay ACTIVE. A field's answer (No, None, N/A, "Not at this time") must
+# end the field: "No exceptions", "no less than Secret" and "No later than ..." are not an answer of No.
 _CLR_NOUN = (r"(?:(?:active|current|existing)\s+)?(?:(?:ts/sci|top secret)(?:\s+(?:security\s+)?clearance)?"
              r"|(?:secret\s+)?(?:security\s+)?clearance)")
-_CLR_GAP = r"(?:(?!\bbut\b)[^.;,])"
+_CLR_GAP = r"(?:(?!\b(?:but|required|needed|necessary)\b)[^.;,?!])"
 CLR_NOT_REQUIRED = re.compile(
     r"\bno\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b"
     r"|\b" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,25}\bnot\s+(?:required|needed|necessary)\b"
-    r"|\b" + _CLR_NOUN + r"\s+(?:is\s+)?(?:required|needed)\s*[:?]\s*(?:no|none|n/?a)\b"
-    r"(?!\s*(?:exceptions?|waivers?|substitut\w*)\b)"
+    r"|\b" + _CLR_NOUN + r"\s+(?:is\s+)?(?:required|needed)\s*[:?]\s*"
+    r"(?:no|none|n/?a|not\s+(?:at\s+this\s+time|currently|applicable))(?=\s*(?:[.;,!?()\n]|$))"
     r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b", re.I)
 # A named level followed by "required" or "needed": "Top Secret clearance required", "TS/SCI required". The
 # gap stops at a comma (", or higher," excepted), a semicolon, "but", or a word that makes it a wish
@@ -97,22 +99,24 @@ CLR_LEVEL_REQUIRED = re.compile(
 # ("Ability to obtain a Secret clearance is required") or after it ("... required within 90 days of hire",
 # "... required (can be obtained after hire)", "... required or ability to obtain one", "... we sponsor it").
 # Sponsorship counts only when it is offered and is not visa sponsorship: "does not sponsor visas", "no
-# sponsorship" and "visa sponsorship is available" do not excuse a requirement.
+# sponsorship", "visa sponsorship is available", "we do not offer sponsorship" and "candidates requiring
+# sponsorship" do not excuse a requirement.
 CLR_OBTAIN_NEAR = re.compile(
     r"\bobtain\w*|\b(?:abilit\w*|able|eligib\w*)\s+(?:to\s+(?:obtain|get|acquire|receive|be\s+granted)|for)\b"
     r"|\bwithin\s+\d+\s+(?:days?|weeks?|months?)\b"
     r"|\b(?:after|following)\s+(?:hire|hiring|start\w*|onboarding|employment|an?\s+offer|offer)\b"
     r"|\bcan\s+be\s+(?:obtained|sponsored|granted|processed)\b"
-    r"|(?<!\bnot )(?<!\bno )(?<!n't )(?<!\bnever )(?<!\bcannot )(?<!\bunable to )(?<!\bvisa )(?<!\bh-1b )(?<!\bh1b )"
+    r"|(?<!\bnot )(?<!\bno )(?<!n't )(?<!\bnever )(?<!\bcannot )(?<!\bunable to )(?<!\bnot offer )(?<!\bnot provide )(?<!n't offer )(?<!n't provide )(?<!\brequiring )(?<!\brequire )(?<!\brequires )(?<!\bneed )(?<!\bneeding )(?<!\bvisa )(?<!\bh-1b )(?<!\bh1b )"
     r"\bsponsor\w*(?!\s+(?:visas?|h-?1b|immigration|work\s+(?:visas?|authori[sz]ation)|employment\s+visas?)\b)"
     r"(?!\w*\s+(?:is\s+|are\s+)?(?:not|un)\s*available)", re.I)
 # The same, in the clause just before or just after: it must name what is obtained ("Must be able to obtain
-# a security clearance. Secret clearance required."), or say "it" or "one" directly after "obtain" ("must be
-# able to obtain it after an offer"). A clause that names another level does not count ("Ability to obtain
+# a security clearance. Secret clearance required."), or say "it" or "one" directly after "obtain", "obtain and
+# maintain/hold/keep" or "obtain/maintain" ("must be able to obtain it after an offer"); "one of" a list is not it. A clause that names another level does not count ("Ability to obtain
 # a Secret clearance. Top Secret clearance is required." stays ACTIVE), nor does obtaining something else
 # ("Must be able to obtain a CPA license within one year." does not excuse a required Secret clearance).
 CLR_OBTAIN_REF = re.compile(
-    r"\b(?:obtain\w*|acquir\w*)\b(?:\s+(?:it|one)\b(?!\s+(?:years?|months?|weeks?|days?)\b)"
+    r"\b(?:obtain\w*|acquir\w*)\b(?:(?:\s+and\s+|\s*/\s*)(?:maintain|hold|keep)\w*\b)?"
+    r"(?:\s+(?:it|one)\b(?!\s+(?:years?|months?|weeks?|days?|of)\b)"
     r"|(?:\s+[\w/-]+){0,4}?\s+(?:(?:security\s+)?clearance|ts/sci|top secret|secret)\b)",
     re.I)
 CLR_LEVEL_WORD = re.compile(r"ts/sci|top secret|secret", re.I)
