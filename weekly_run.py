@@ -69,6 +69,15 @@ def markdown_cell(value):
     return text.replace("|", r"\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
+def url_cell(value):
+    """A URL in a Markdown cell, left as written so it can be copied and followed. Only what would end
+    the cell or the line, or open an HTML tag, is percent-encoded; nothing is escaped with a backslash."""
+    text = str(value or "").replace("\r", "").replace("\n", "").replace("\t", "")
+    for ch, enc in (("|", "%7C"), ("<", "%3C"), (">", "%3E"), (" ", "%20"), ("`", "%60")):
+        text = text.replace(ch, enc)
+    return text
+
+
 def scanner_walls(log_text):
     """The lines the scanner printed under its WALLS heading."""
     out, on = [], False
@@ -198,11 +207,11 @@ def main(argv=None):
         band = " to ".join(x for x in (cell(r, "band_low"), cell(r, "band_high")) if x)
         if cell(r, "band_ctx"):
             band += " (%s)" % cell(r, "band_ctx")
-        L.append("| " + " | ".join(markdown_cell(v) for v in
-                                   (cell(r, "employer"), cell(r, "title"), cell(r, "location"),
-                                    band, cell(r, "clearance"), cell(r, "url"))) + " |")
+        L.append("| " + " | ".join([markdown_cell(v) for v in
+                                    (cell(r, "employer"), cell(r, "title"), cell(r, "location"),
+                                     band, cell(r, "clearance"))] + [url_cell(cell(r, "url"))]) + " |")
     L += ["", "## Closed since last run (%d)" % len(closed), ""]
-    L += ["- %s: %s %s" % tuple(markdown_cell(cell(r, k)) for k in ("employer", "title", "url"))
+    L += ["- %s: %s %s" % (markdown_cell(cell(r, "employer")), markdown_cell(cell(r, "title")), url_cell(cell(r, "url")))
           for r in closed] or ["- none"]
     L += ["", "Read-only run: nothing was applied for or sent."]
     write(delta, "\n".join(L) + "\n")

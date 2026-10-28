@@ -125,10 +125,16 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 `job_scanner.py` gives one verdict per posting:
 
 - `ACTIVE REQUIRED`: the title or the text asks for a clearance already held ("active",
-  "existing", "must hold", a level followed by "polygraph").
+  "existing", "must hold", a level followed by "polygraph"), or names a level followed by
+  "required" or "needed" ("Top Secret clearance required") in a sentence that does not first speak
+  of obtaining it.
 - `OBTAINABLE`: the text speaks of ability to obtain one, of public trust or suitability, or of
-  citizenship.
+  citizenship. "Ability to obtain a Secret clearance is required" is `OBTAINABLE`.
 - `NONE STATED`.
+
+Wording that says a clearance is not asked for ("No active clearance is required", "A Top Secret
+clearance is not required", "does not require a Secret clearance") is set aside before the
+`ACTIVE REQUIRED` tests run.
 
 `clearance.when_active_required` decides whether an `ACTIVE REQUIRED` posting is dropped or kept.
 Kept, it is written with its verdict. Dropped, it is in no output file; the run prints how many
@@ -203,10 +209,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 525 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 531 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 411 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 416 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -420,9 +426,10 @@ fixed here:
     cancel that difference.
   - The place test is a match on the facet's parameter name, so a facet named for something else
     that holds one of those words is passed over.
-  - A facet count too large to read as a number, or a `jobPostings` that is not a list, raises
-    inside the split. The run then reports that employer as a wall with no rows, where the first
-    2,000 had been listed.
+  - A facet count too large to read as a number raises inside the split. The run then reports
+    that employer as a wall with no rows, where the first 2,000 had been listed. A `jobPostings`
+    that is not a list, or a posting in it that is not an object, stops that slice: the postings
+    already read are kept, the reason is in the CAPPED flag, and no further slice is asked for.
   - Among the rules no test pins: the figure 6,000; the bound inside the second level; the count
     being of distinct postings; the reason given for a capped slice that has no second facet; the
     stop for a slice body that is not a JSON object; and that a total above 2,000, or 2,000 rows
