@@ -81,10 +81,14 @@ def started_sweep(d):
         ok &= check(rc == 0 and "## New since last run (2)" in md and "- none recorded (" in md and "## Closed since last run (0)" in md,
                     "started: rows with no URL are told apart by employer, req and title; a run with no wall says none was recorded")
         rc, md = go("2026-04-05", rc=1)
-        ok &= check(rc == 5 and "exited 1 and wrote no roles_2026-04-05.csv" in md, "started: a sweep that fails and writes nothing: exit 5 and a STOPPED delta")
+        skipped_log = open(os.path.join(res, "RUN_LOG_2026-04-05_pass2.txt")).read()
+        ok &= check(rc == 5 and "exited 1 and wrote no roles_2026-04-05.csv" in md,
+                    "started: a failed primary sweep stops with a STOPPED delta")
+        ok &= check(len(cmds) == 1 and "SKIPPED: the primary sweep exited 1" in skipped_log,
+                    f"started: a failed primary sweep skips pass 2 and records the skip (commands={len(cmds)}, log={skipped_log.strip()})")
         rc, md = go("2026-04-03", rc=1)
-        ok &= check(rc == 5 and "exited 1 and the roles_2026-04-03.csv on disk is not this run's" in md,
-                    "started: a sweep that fails is a stop even when a roles file for today is already on disk")
+        ok &= check(rc == 5 and "the roles_2026-04-03.csv on disk is not trusted (it may be stale or incomplete)" in md,
+                    "started: a sweep that fails does not trust a possibly stale or partial roles file")
         seq = iter([0, 1])
         def second_fails(cmd, **kw):
             cmds.append(list(cmd)); rc = next(seq)
@@ -96,8 +100,35 @@ def started_sweep(d):
         wr.subprocess.run = fake_run
         ok &= check(rc == 0 and "This run: roles_2026-04-04.csv, 1 postings." in md and "- second pass: job_scanner.py exited 1; its roles file was not read" in md
                     and "none recorded" not in md, "started: a second pass that fails is a wall, and a second-pass file an earlier run left is not read")
-        rc, md = go("2026-04-06", **{"raise": wr.subprocess.TimeoutExpired("x", 1)})
-        ok &= check(rc == 5 and "exited timeout" in md and len(cmds) == 2, "started: a sweep that times out: exit 5, and the second pass is still tried")
+        stale1 = os.path.join(res, "RUN_LOG_2026-04-06.txt")
+        stale2 = os.path.join(res, "RUN_LOG_2026-04-06_pass2.txt")
+        open(stale1, "w").write("STALE LOG")
+        open(stale2, "w").write("STALE LOG")
+        timeout = wr.subprocess.TimeoutExpired("x", 1, output=b"partial sweep output", stderr=b"partial sweep error")
+        rc, md = go("2026-04-06", **{"raise": timeout})
+        log1 = open(os.path.join(res, "RUN_LOG_2026-04-06.txt"), encoding="utf-8").read()
+        log2 = open(os.path.join(res, "RUN_LOG_2026-04-06_pass2.txt"), encoding="utf-8").read()
+        ok &= check(rc == 5 and "exited timeout" in md and len(cmds) == 1
+                    and "TIMED OUT: primary sweep" in log1 and "partial sweep output" in log1
+                    and "partial sweep error" in log1 and "SKIPPED: the primary sweep exited timeout" in log2
+                    and "STALE LOG" not in log1 and "STALE LOG" not in log2,
+                    "started: primary timeout overwrites stale logs, retains partial stdout/stderr, and skips the second pass")
+        def second_timeout(cmd, **kw):
+            cmds.append(list(cmd))
+            if len(cmds) == 1:
+                roles(cmd[cmd.index("--out") + 1], [one])
+                return Done(0, "")
+            raise wr.subprocess.TimeoutExpired("x", 1, output=b"partial pass 2", stderr=b"pass 2 error")
+        wr.subprocess.run = second_timeout; wr.TODAY = "2026-04-09"; del cmds[:]
+        rc = wr.cli(["--config", cfg_p, "--results", res])
+        md = open(os.path.join(res, "WEEKLY_DELTA_2026-04-09.md"), encoding="utf-8").read()
+        log2 = open(os.path.join(res, "RUN_LOG_2026-04-09_pass2.txt"), encoding="utf-8").read()
+        wr.subprocess.run = fake_run
+        ok &= check(rc == 0 and "second pass exit timeout" in md and "TIMED OUT: second pass" in log2
+                    and "partial pass 2" in log2 and "pass 2 error" in log2,
+                    "started: a secondary timeout leaves its own fresh log with partial output")
+        safe = wr.markdown_cell("A|B\n<script>")
+        ok &= check(safe == "A\\|B<br>&lt;script&gt;", "delta rendering escapes table pipes, line breaks, and raw HTML")
         rc, md = go("2026-04-07", **{"raise": RuntimeError("boom")})
         ok &= check(rc == 9, "started: a crash is exit 9, not a traceback and not exit 0")
         Answer.status = 503
@@ -147,8 +178,8 @@ def main():
     ok &= check("- scanner: lever beta: HTTP 503 after 0" in md and "- scanner: workday gamma: 9 of total 9" in md and "not a wall line" not in md,
                 "the notes the scanner printed under WALLS, in both passes, are copied into the delta")
     ok &= check(md.count("- scanner: blocked: offlimits: robots") == 1, "a note printed by both passes is listed once")
-    ok &= check("## New since last run (1)" in md and "| alpha | Manager, Audit | Denver, CO | 205000 to 265000 (Zone / A) | ACTIVE REQUIRED | https://x.example/3 |" in md,
-                "the new role is listed with its band and verdict; %2C decoded, a pipe in a cell replaced")
+    ok &= check("## New since last run (1)" in md and "| alpha | Manager, Audit | Denver, CO | 205000 to 265000 (Zone \\| A) | ACTIVE REQUIRED | https://x.example/3 |" in md,
+                "the new role is listed with its band and verdict; %2C decoded, a pipe safely escaped")
     ok &= check("## Closed since last run (1)" in md and "- alpha: Audit Lead https://x.example/2" in md and "- beta: Treasury Analyst" not in md,
                 "a role that is gone is listed as closed; the walled employer's role is not")
     ok &= check("second pass exit dry" in md, "the run line says what ran")

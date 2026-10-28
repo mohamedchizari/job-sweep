@@ -64,7 +64,7 @@ CASES = [
  ('NONE_FOUND', 'Uncleared Margin Analyst', "Any text"),
  ('NONE_FOUND', 'Analyst (TS/SCI eligible)', "Any text"),
  ('NONE_FOUND', 'Analyst - Ability to obtain Top Secret', "Any text"),
- ('ACTIVE_REQUIRED', 'Cleared Derivatives Analyst', "Any text"),   # a known misread: see Limits in the README
+ ('NONE_FOUND', 'Cleared Derivatives Analyst', "Any text"),
 ]
 
 
@@ -77,9 +77,10 @@ class Resp:
 
 class Sess:
     """Answers each ATS route posting_census.get() can take, and counts the calls."""
-    def __init__(self): self.calls, self.accept = [], set()
-    def get(self, url, headers=None, **_):
+    def __init__(self): self.calls, self.accept, self.options = [], set(), []
+    def get(self, url, headers=None, **kwargs):
         self.calls.append(url); self.accept.add((headers or {}).get("Accept", ""))
+        self.options.append(kwargs)
         if url == "https://boards-api.greenhouse.io/v1/boards/boardone/jobs/11?pay_transparency=true":
             return Resp({"title": "Cost Accountant", "location": {"name": "Denver, CO"}, "updated_at": "2026-09-01",
                          "pay_input_ranges": [{"title": "Zone A:", "min_cents": 15000000, "max_cents": 19000000}],
@@ -110,6 +111,29 @@ def check(cond, msg):
 
 def main():
     ok = True
+    pc.socket.getaddrinfo = lambda host, port, **_: [
+        (pc.socket.AF_INET, pc.socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+    for url in ("file:///etc/passwd", "http://127.0.0.1/", "http://localhost/", "https://user@public.example/"):
+        try:
+            pc.validate_public_url(url)
+            blocked = False
+        except ValueError:
+            blocked = True
+        ok &= check(blocked, f"URL validation rejects unsafe URL {url}")
+    blocked_sess = Sess()
+    code, text = pc.get("http://127.0.0.1/admin", blocked_sess)
+    ok &= check(str(code).startswith("BLOCKED:") and text == "" and not blocked_sess.calls,
+                "generic CSV URLs are blocked before the HTTP client is called")
+    real_resolver = pc.socket.getaddrinfo
+    pc.socket.getaddrinfo = lambda host, port, **_: [
+        (pc.socket.AF_INET, pc.socket.SOCK_STREAM, 6, "", ("10.0.0.1", port))]
+    try:
+        pc.validate_public_url("https://private.example/")
+        private_blocked = False
+    except ValueError:
+        private_blocked = True
+    pc.socket.getaddrinfo = real_resolver
+    ok &= check(private_blocked, "URL validation rejects hostnames resolving to private addresses")
     for want, title, text in CASES:
         got, line = pc.clearance(text, title)
         ok &= check(got == want, f"{want} <- {title}" + ("" if got == want else f" (got {got}: {line[:70]})"))
@@ -149,9 +173,18 @@ def main():
     code, text = pc.get("https://careers.example.com/job/9", s)
     ok &= check(code == 200 and text.startswith("TITLE: Treasury Analyst") and pc.band(text)[:2] == (120000, 165000), "other sites: JSON-LD inside @graph")
     code, text = pc.get("https://careers.example.com/plain", s)
-    ok &= check((code, text) == (200, "Plain page"), "no JSON-LD: page text without script or style")
+    ok &= check((code, text) == (200, "Plain page") and s.options[-1].get("allow_redirects") is False,
+                "no JSON-LD: page text without script or style, redirects disabled for CSV-provided URLs")
     code, text = pc.get("https://careers.example.com/gone", s)
     ok &= check((code, text) == (404, ""), "a refused page returns its status and no text")
+    class RedirectSess:
+        def __init__(self): self.followed = None
+        def get(self, url, **kwargs):
+            self.followed = kwargs.get("allow_redirects")
+            return Resp({}, 302)
+    redirect = RedirectSess()
+    ok &= check(pc.get("https://careers.example.com/redirect", redirect) == (302, "")
+                and redirect.followed is False, "a CSV URL redirect is not followed to another host")
     ok &= check(s.accept <= {"application/json, text/html;q=0.9,*/*;q=0.8", "application/json"} and "" not in s.accept,
                 "every fetch sends an Accept header that includes JSON (a job page can depend on it)")
 

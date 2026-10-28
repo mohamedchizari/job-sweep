@@ -354,7 +354,7 @@ M = [
  ("census: 'must have the ability to obtain' a requirement", C, '''        if m and not re.search(r"abilit|able to|eligib|obtain", m.group(1), re.I): return 'ACTIVE_REQUIRED', l[:200]''', "        if m: return 'ACTIVE_REQUIRED', l[:200]"),
  ("census: 'requires' not read", C, r"required|\brequires\b|maintain", "required|maintain"),
  ("census: title exemptions off", C, '''    if TITLE.search(title) and not re.search(r"sponsorship|desired|eligible|obtain", title, re.I):''', "    if TITLE.search(title):"),
- ("census: 'cleared' inside a word", C, r"\bcleared\b))", "cleared))"),
+ ("census: generic cleared title treated as a requirement", C, r"security clearance requi))", r"security clearance requi|\bcleared\b))"),
  ("census: 'poly' inside a word", C, r"\bpoly(?:graph)?\b", "poly"),
  ("census: a field about obtaining read as a requirement", C, "        if not m or SOFT.search(m.group(1)):", "        if not m:"),
  ("census: header kept on re-read", C, "text = f.read().split('\\n', 2)[-1]", "text = f.read()"),
@@ -367,7 +367,7 @@ M = [
  ("census: absent Ashby job read as a page", C, "        return 'ABSENT FROM LIST', ''   # read from the board list", "        pass   # read from the board list"),
  # ---------------- weekly
  ("weekly: walled employers listed as closed", W, ' and r.get("employer", "") not in walls}.values())', "}.values())"),
- ("weekly: scanner walls dropped", W, '    L += ["- scanner: %s" % n for n in notes]\n', ""),
+ ("weekly: scanner walls dropped", W, '    L += ["- scanner: %s" % markdown_cell(n) for n in notes]\n', ""),
  ("weekly: canary result ignored", W, "    if code != 200:\n", "    if False:\n"),
  ("weekly: compares with every earlier day", W, "    prev_files = sorted(f for d, f in earlier if d == prev_day)", "    prev_files = sorted(f for d, f in earlier)"),
  ("weekly: compares with the oldest day", W, "prev_day = max(d for d, _ in earlier) if earlier else None", "prev_day = min(d for d, _ in earlier) if earlier else None"),
@@ -392,12 +392,14 @@ M = [
  ('avature: a refused page read as the end of the list', J, '        if r.status_code != 200:\n            why = " (406', '        if False:\n            why = " (406'),
  ('eightfold: a refused search read as the end of the list', J, '        if r.status_code != 200:\n            waf = ', '        if False:\n            waf = '),
  ('amazon: a refused page read as the end of the list', J, '        if r.status_code != 200:\n            return rows, f"amazon {spec!r}: HTTP {r.status_code} at offset={off}"\n', ''),
- ("verdict: 'existing' not read", J, '(hold|possess)|existing)', '(hold|possess))'),
+ ("verdict: explicit level requirement not read", J, 'or CLR_LEVEL_REQUIRED.search(text)', ''),
  ('verdict: a level with a polygraph not read', J, 'r"|\\b(ts/sci|top secret)\\b[^.]{0,50}?\\bpolygraph\\b"', 'r""'),
  ('verdict: public trust not read', J, 'obtain and maintain|public trust|suitability|', 'obtain and maintain|suitability|'),
  ('verdict: suitability not read', J, 'obtain and maintain|public trust|suitability|', 'obtain and maintain|public trust|'),
  ('verdict: citizenship not read', J, 'r"preferred|u\\.?s\\.?\\s+citizen)"', 'r"preferred)"'),
- ('verdict: obtaining read before active', J, '    if CLR_ACTIVE.search(t or ""): return "ACTIVE REQUIRED"\n    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"', '    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"\n    if CLR_ACTIVE.search(t or ""): return "ACTIVE REQUIRED"'),
+ ('verdict: obtaining read before active', J,
+  '    if CLR_ACTIVE.search(text) or CLR_LEVEL_REQUIRED.search(text): return "ACTIVE REQUIRED"\n    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"',
+  '    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"\n    if CLR_ACTIVE.search(text) or CLR_LEVEL_REQUIRED.search(text): return "ACTIVE REQUIRED"'),
  ('verdict: the title not read', J, '            hay = f"{r[\'title\']} {r[\'text\']}"', "            hay = r['text']"),
  ('script and style bodies read as text', J, '    s = re.sub(r"<(script|style)[^>]*>.*?</\\1>", " ", s, flags=re.S | re.I)\n', ''),
  ("text band: 'to' not a joiner", J, '(?:\\.\\d\\d)?(?:\\s*(?:-|–|—|to)\\s*"', '(?:\\.\\d\\d)?(?:\\s*(?:-|–|—)\\s*"'),
@@ -464,7 +466,7 @@ M = [
  ('census: --only ignored', C, '        rows = [r for r in rows if f"{r[\'employer\']}:{r[\'req\']}" in want]\n', ''),
  ('census: --skip-employers ignored', C, "        rows = [r for r in rows if r['employer'] not in skip]\n", ''),
  ('census: missing columns not checked', C, '    if missing:\n        sys.exit(', '    if False:\n        sys.exit('),
- ('weekly: a stopped sweep exits 0', W, '% os.path.basename(out), TODAY))\n        return 5', '% os.path.basename(out), TODAY))\n        return 0'),
+ ('weekly: a stopped sweep exits 0', W, '\n              % (TODAY, rc1, result, TODAY))\n        return 5', '\n              % (TODAY, rc1, result, TODAY))\n        return 0'),
  ('weekly: a failed sweep read from a roles file already on disk', W, '    if not os.path.exists(out) or rc1 not in (0, "dry"):', '    if not os.path.exists(out):'),
  ("weekly: canary sent without the tools' headers", W, 'headers=dict(sweep_settings.HEADERS))', 'headers={})'),
  ('weekly: second pass without --lane', W, '"--candidates", "--lane", "--cap", "0",', '"--candidates", "--cap", "0",'),
@@ -472,13 +474,24 @@ M = [
  ('weekly: second pass with the default cap', W, '"--candidates", "--lane", "--cap", "0",', '"--candidates", "--lane",'),
  ('weekly: sweep started with a wrong flag', W, '[sys.executable, SCANNER, "--config", a.config, "--out", out],', '[sys.executable, SCANNER, "--confg", a.config, "--out", out],'),
  ('weekly: a crash exits 0', W, '        return 9', '        return 0'),
- ('weekly: a timeout of the sweep is a crash', W, '        except subprocess.TimeoutExpired:\n            rc1 = "timeout"', '        except ZeroDivisionError:\n            rc1 = "timeout"'),
+ ('weekly: a timeout of the sweep is a crash', W,
+  '        except subprocess.TimeoutExpired as e:\n            write(log1, timeout_log("primary sweep", e))\n            rc1 = "timeout"',
+  '        except ZeroDivisionError as e:\n            write(log1, timeout_log("primary sweep", e))\n            rc1 = "timeout"'),
  ('weekly: rows with no URL keyed on nothing', W, '    return u if u else (r.get("employer", ""), r.get("req", ""), r.get("title", ""))', '    return u'),
  ('weekly: no line when no wall was recorded', W, '    if not walls and not notes and second_ok:\n', '    if False:\n'),
  ('weekly: a first run not named as one', W, 'prev if prev else "nothing (first run)"', 'prev'),
  ("weekly: today's second file not read", W, '    new_files = [out] + ([out2] if second_ok and os.path.exists(out2) else [])', '    new_files = [out]'),
  ('weekly: new roles counted per row', W, '    added = list({key(r): r for r in new_rows if key(r) not in old_k}.values())', '    added = [r for r in new_rows if key(r) not in old_k]'),
  ('weekly: run log not written', W, '            write(log1, (p.stdout or "") + "\\n--- stderr ---\\n" + (p.stderr or ""))\n', ''),
+ ("census: generic private URL fetched", C, '        validate_public_url(url)\n', '        pass\n'),
+ ("census: CSV URL redirects followed", C, 'timeout=30, allow_redirects=False)', 'timeout=30, allow_redirects=True)'),
+ ("workday: malformed page discards earlier rows", J,
+  '        except Exception as e:\n            stopped = f"  <-- STOPPED: {type(e).__name__} at offset={offset}; the list may be longer"; break',
+  '        except Exception as e:\n            raise'),
+ ("weekly: failed primary still starts pass 2", W, '        if second and rc1 == 0:', '        if second:'),
+ ("weekly: Markdown cells not escaped", W,
+  r'return text.replace("|", r"\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")',
+  'return text'),
  ("phenom: a missing total ends the list after one page", J, "    while got and (frm < total or not known) and frm < 5000:", "    while got and frm < total and frm < 5000:"),
  ("avature: the last page not cut at the cap", J, "            if cap and len(rows) >= cap: break   # the last page is cut at the cap\n", ""),
  ("JSON-LD: a null date written as the word None", J, 'str(jp.get("datePosted") or "")[:10]', 'str(jp.get("datePosted", ""))[:10]'),
@@ -488,6 +501,9 @@ M = [
 ]
 
 def limit():
+    if sys.platform == "darwin":
+        # This runner rejects lowering RLIMIT_AS; each mutation still has a subprocess timeout.
+        return
     resource.setrlimit(resource.RLIMIT_AS, (1500 * 1024 * 1024, 1500 * 1024 * 1024))
 
 

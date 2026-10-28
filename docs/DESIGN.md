@@ -140,8 +140,14 @@ looks first at the title, then at labelled fields ("Clearance required: ..."), t
 that names a level, then at public trust, and it returns the line it relied on, so a person can
 check the verdict at a glance. Within a line, wording about obtaining counts when it comes before
 "active": "ability to obtain and maintain an active clearance" is about obtaining. Its test file
-holds forty-eight phrasings and titles, written for the tests, and the reading each must get. One of
-them is a known misread, kept as such: the title "Cleared Derivatives Analyst".
+holds forty-eight phrasings and titles, written for the tests, and the reading each must get. A
+generic "Cleared" title is not treated as proof that a currently held clearance is required.
+
+For generic posting-page URLs read by `posting_census.py`, only credential-free HTTP(S) URLs whose
+hostnames resolve exclusively to globally routable IP addresses are fetched, and redirects are
+disabled. ATS-specific routes construct URLs from their vendor host patterns. This is a defense
+for CSV input, not a guarantee against a hostile DNS rebinding race: the HTTP client resolves the
+hostname again after validation.
 
 ## 6. The lane
 
@@ -180,6 +186,9 @@ as closed, because a wall is not evidence that anything closed. "Closed" otherwi
 that was in the previous file and is not in this one, which a gate or a cap can also cause. A
 posting that both passes of a day wrote is counted once. A sweep that fails or times out stops the
 run with a STOPPED delta, even when a roles file for the day is already on disk.
+Timed-out passes still produce a fresh run log containing a timeout marker and any partial stdout
+or stderr captured by the subprocess API. A failed or timed-out primary sweep skips the second pass
+and records that decision in its run log.
 
 ## 9. What answered
 
@@ -194,10 +203,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 512 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 525 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 406 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 411 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).

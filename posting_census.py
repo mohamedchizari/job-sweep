@@ -18,12 +18,40 @@ lines for a person to check. Read-only: public endpoints, GET only; it contacts 
   python3 posting_census.py roles.csv --out census.csv --save-dir postings
   python3 posting_census.py roles.csv --only name:REQ123,name:REQ456 --show
 """
-import argparse, csv, datetime, hashlib, html, json, os, re, sys, time
+import argparse, csv, datetime, hashlib, html, ipaddress, json, os, re, socket, sys, time
+from urllib.parse import urlsplit
 
 import sweep_settings
 
 UA = dict(sweep_settings.HEADERS)
 PAUSE = 0.4
+
+
+def validate_public_url(url):
+    """Reject non-web, local, and non-public targets before fetching a CSV-provided URL."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except (TypeError, ValueError):
+        raise ValueError("invalid URL")
+    if parsed.scheme.lower() not in ("http", "https") or not host or parsed.username or parsed.password:
+        raise ValueError("only credential-free HTTP(S) URLs are allowed")
+    if "%" in host:
+        raise ValueError("scoped IP addresses are not allowed")
+    host = host.rstrip(".").lower()
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".lan", ".home")):
+        raise ValueError("local hostnames are not allowed")
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(info[4][0]) for info in
+                         socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
+        except (OSError, ValueError, IndexError) as e:
+            raise ValueError(f"host could not be resolved safely ({type(e).__name__})")
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("URL must resolve only to public IP addresses")
 
 
 def strip(h):
@@ -79,7 +107,11 @@ def get(url, sess):
             if d.get('id') == m.group(2):
                 return 200, f"TITLE: {d.get('title')}\nLOCATION: {d.get('location')} remote={d.get('isRemote')} listed={d.get('isListed')}\nPAY: {(d.get('compensation') or {}).get('compensationTierSummary')}\nPUBLISHED: {d.get('publishedAt')}\n" + strip(d.get('descriptionHtml'))
         return 'ABSENT FROM LIST', ''   # read from the board list: a job that is not in it is not open on the board
-    r = sess.get(url, headers=UA, timeout=30)
+    try:
+        validate_public_url(url)
+    except ValueError as e:
+        return f"BLOCKED: {e}", ""
+    r = sess.get(url, headers=UA, timeout=30, allow_redirects=False)
     if r.status_code != 200: return r.status_code, ''
     jp = jsonld(r.text)
     if jp: return 200, f"TITLE: {jp.get('title')}\nPOSTED: {jp.get('datePosted')} validThrough {jp.get('validThrough')}\nPAY: {json.dumps(jp.get('baseSalary'))}\n" + strip(jp.get('description'))
@@ -103,7 +135,7 @@ FIELD = re.compile(r"^[-·•*\s]*((?:[A-Za-z][A-Za-z /&()-]{0,60}?)?\bclearance
 NO_VALUE = re.compile(r"(none|no\b|n/a|not applicable|not required)", re.I)
 TRUST = re.compile(r"public trust|naci|suitab", re.I)
 YES_VALUE = re.compile(r"(yes|active|current)\b", re.I)
-TITLE = re.compile(r"(?:TS/SCI|\bTS\b|(?i:\bpoly(?:graph)?\b|top secret|secret clearance required|security clearance requi|\bcleared\b))")
+TITLE = re.compile(r"(?:TS/SCI|\bTS\b|(?i:\bpoly(?:graph)?\b|top secret|secret clearance required|security clearance requi))")
 PROCESS = re.compile(r"subject to[^.]{0,40}investigation", re.I)        # a sentence about the vetting process
 MUST = re.compile(r"(?i:must (?:have|hold|possess))([^.]{0,40})" + LEVEL)
 BARE = re.compile(r"^[-·•*\s]*(?i:an? )?(?i:active |current )?" + LEVEL + r"(?i:[A-Za-z/ ,()-]{0,60}clearance[^.]{0,40})$")
