@@ -129,6 +129,7 @@ def started_sweep(d):
                     "started: a secondary timeout leaves its own fresh log with partial output")
         safe = wr.markdown_cell("A|B\n<script>")
         ok &= check(safe == "A\\|B<br>&lt;script&gt;", "delta rendering escapes table pipes, line breaks, and raw HTML")
+        ok &= check(wr.markdown_cell("C:\\x_y") == "C:\\\\x\\_y", "delta rendering doubles a backslash and escapes a Markdown mark")
         wd = ("gamma", "7", "Controller", "Denver, CO", "NONE STATED", "150000", "190000", "Denver",
               "https://acme.wd5.myworkdayjobs.com/en-US/Ext_Careers/job/Denver/Controller_R7?a=1&b=2")
         rc, md = go("2026-04-11", rows=[one, wd])

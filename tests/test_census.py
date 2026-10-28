@@ -110,9 +110,18 @@ def check(cond, msg):
 
 
 def main():
+    real_resolver = pc.socket.getaddrinfo
+    try:
+        return checks()
+    finally:
+        pc.socket.getaddrinfo = real_resolver
+
+
+def checks():
     ok = True
-    pc.socket.getaddrinfo = lambda host, port, **_: [
+    public_resolver = lambda host, port, **_: [
         (pc.socket.AF_INET, pc.socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+    pc.socket.getaddrinfo = public_resolver
     for url in ("file:///etc/passwd", "http://127.0.0.1/", "http://localhost/", "https://user@public.example/"):
         try:
             pc.validate_public_url(url)
@@ -124,7 +133,6 @@ def main():
     code, text = pc.get("http://127.0.0.1/admin", blocked_sess)
     ok &= check(str(code).startswith("BLOCKED:") and text == "" and not blocked_sess.calls,
                 "generic CSV URLs are blocked before the HTTP client is called")
-    real_resolver = pc.socket.getaddrinfo
     pc.socket.getaddrinfo = lambda host, port, **_: [
         (pc.socket.AF_INET, pc.socket.SOCK_STREAM, 6, "", ("10.0.0.1", port))]
     try:
@@ -132,7 +140,7 @@ def main():
         private_blocked = False
     except ValueError:
         private_blocked = True
-    pc.socket.getaddrinfo = real_resolver
+    pc.socket.getaddrinfo = public_resolver
     ok &= check(private_blocked, "URL validation rejects hostnames resolving to private addresses")
     for want, title, text in CASES:
         got, line = pc.clearance(text, title)

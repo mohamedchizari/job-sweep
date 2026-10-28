@@ -129,8 +129,10 @@ own pages make.
 
 - The gates read text with patterns. They miss phrasings they were not written for. The sweep's
   clearance verdict reads "Top Secret clearance required" as `ACTIVE REQUIRED`, "Ability to obtain
-  a Secret clearance is required" as `OBTAINABLE`, and "No active clearance is required" or "A Top
-  Secret clearance is not required" as `NONE STATED`, but other phrasings can still be misclassified. `posting_census.py` also uses
+  a Secret clearance is required" or "Secret clearance required within 90 days of hire" as
+  `OBTAINABLE`, and "No active clearance is required" or "A Top Secret clearance is not required" as
+  `NONE STATED`, but other phrasings can still be misclassified (docs/DESIGN.md, section 5 and its
+  limits). `posting_census.py` also uses
   pattern matching and is evidence for a person to check, not a definitive eligibility decision.
 - A posting with no published band passes the pay gate. On boards that print no bands the sweep is
   a list to read, not a shortlist.

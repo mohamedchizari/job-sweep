@@ -65,24 +65,44 @@ def configure(settings):
 CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(currently\s+)?"
                         r"(hold|possess)|existing)\b[^.]{0,90}?\b(clearance|ts/sci|"
                         r"top secret|secret|polygraph)\b"
-                        r"|\b(ts/sci|top secret)\b[^.]{0,50}?\bpolygraph\b", re.I)
+                        r"|\b(ts/sci|top secret)\b[^.]{0,50}?\bpolygraph\b"
+                        r"|\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b", re.I)
 CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen)", re.I)
 # Wording that says a clearance is NOT asked for. It is cut from the text before the ACTIVE tests run, so
 # "A Top Secret clearance is not required" or "No Secret clearance is required" is not read as a requirement.
+# The gap never crosses a comma, a semicolon or "but", so a later clause keeps its own requirement:
+# "Active Secret clearance required, relocation not required" stays ACTIVE.
 _CLR_NOUN = r"(?:(?:active|current|existing)\s+)?(?:(?:ts/sci|top secret|secret)\s+)?(?:security\s+)?clearance"
+_CLR_GAP = r"(?:(?!\bbut\b)[^.;,])"
 CLR_NOT_REQUIRED = re.compile(
-    r"\bno\s+" + _CLR_NOUN + r"\b[^.;]{0,40}\b(?:required|needed|necessary)\b"
-    r"|\b" + _CLR_NOUN + r"\b[^.;]{0,25}\bnot\s+(?:required|needed|necessary)\b"
+    r"\bno\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b"
+    r"|\b" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,25}\bnot\s+(?:required|needed|necessary)\b"
     r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b", re.I)
-# A named level followed by "required" or "needed": "Top Secret clearance required". It counts as ACTIVE only
-# when the same sentence does not speak of obtaining it first ("Ability to obtain a Secret clearance is
-# required" stays OBTAINABLE).
+# A named level followed by "required" or "needed": "Top Secret clearance required", "TS/SCI required". The
+# gap stops at a comma (", or higher," excepted), a semicolon, "but", or a word that makes it a wish
+# ("Secret clearance preferred, degree required" is not a clearance requirement). Whether it counts as ACTIVE is level_verdict()'s call.
 CLR_LEVEL_REQUIRED = re.compile(
-    r"\b(?:ts/sci|top secret|secret)\s+(?:security\s+)?clearance\b[^.;]{0,35}\b(?:is\s+)?(?:required|needed)\b",
+    r"\b(?:ts/sci(?:\s+(?:security\s+)?clearance)?|(?:top secret|secret)\s+(?:security\s+)?clearance)\b"
+    r"(?:,\s*or\s+(?:higher|above|better|equivalent)\b,?|(?!\b(?:but|preferred|desired|plus)\b)[^.;,]){0,35}"
+    r"\b(?:is\s+)?(?:required|needed)\b",
     re.I)
-CLR_OBTAIN_LEAD = re.compile(r"\b(?:abilit\w*|able|eligib\w*|obtain\w*)\b", re.I)
+# Wording, in the same clause as such a requirement, that says the clearance may be obtained: before it
+# ("Ability to obtain a Secret clearance is required") or after it ("... required within 90 days of hire",
+# "... required (can be obtained after hire)", "... required or ability to obtain one").
+CLR_OBTAIN_NEAR = re.compile(
+    r"\bobtain\w*|\b(?:abilit\w*|able|eligib\w*)\s+(?:to\s+(?:obtain|get|acquire|receive|be\s+granted)|for)\b"
+    r"|\bwithin\s+\d+\s+(?:days?|weeks?|months?)\b"
+    r"|\b(?:after|following)\s+(?:hire|hiring|start\w*|onboarding|employment|an?\s+offer|offer)\b"
+    r"|\bcan\s+be\s+(?:obtained|sponsored|granted|processed)\b|\bsponsor\w*", re.I)
+# The same, in the clause just before or just after: it must name what is obtained ("Must be able to obtain
+# a security clearance. Secret clearance required."). A clause that names another level does not count
+# ("Ability to obtain a Secret clearance. Top Secret clearance is required." stays ACTIVE).
+CLR_OBTAIN_REF = re.compile(
+    r"\b(?:obtain\w*|acquir\w*)\b(?:\s+[\w/-]+){0,4}?\s+(?:(?:security\s+)?clearance|ts/sci|top secret|secret|it|one)\b",
+    re.I)
+CLR_LEVEL_WORD = re.compile(r"ts/sci|top secret|secret", re.I)
 
 # Two forms. "$150,000 - $180,000", and the same with "USD" between the first figure and the dash, where "USD" may
 # follow the second figure too: "$150,000 USD - $180,000 USD". No other currency code is read after the first
@@ -259,17 +279,44 @@ def greenhouse_band(pay_input_ranges):
     ctx, lo, hi = pick_range(ranges)
     return (ctx, lo, hi) if hi else None
 
-def level_required(text):
-    """A named level said to be required, in a sentence that does not first speak of obtaining it."""
+def _clause_bounds(text, i, j):
+    """The clause holding text[i:j]: from after the last "." or ";" before i to the next one after j."""
+    start = max(text.rfind(".", 0, i), text.rfind(";", 0, i)) + 1
+    ends = [k for k in (text.find(".", j), text.find(";", j)) if k != -1]
+    return start, (min(ends) if ends else len(text))
+
+
+def _neighbour_says_obtain(clause, level):
+    """A neighbouring clause that speaks of obtaining this clearance, and names no other level."""
+    others = {w.lower() for w in CLR_LEVEL_WORD.findall(clause)} - {level}
+    return bool(CLR_OBTAIN_REF.search(clause)) and not others
+
+
+def level_verdict(text):
+    """"ACTIVE" when a named level is said to be required with no obtaining wording around it; "OBTAIN"
+    when every such statement has obtaining wording in its clause (80 characters before it, 60 after) or
+    in the clause just before or after; None when no level is said to be required."""
+    seen = False
     for m in CLR_LEVEL_REQUIRED.finditer(text):
-        start = max(text.rfind(".", 0, m.start()), text.rfind(";", 0, m.start())) + 1
-        if not CLR_OBTAIN_LEAD.search(text[start:m.start()]): return True
-    return False
+        seen = True
+        level = CLR_LEVEL_WORD.search(m.group(0)).group(0).lower()
+        start, end = _clause_bounds(text, m.start(), m.end())
+        near = text[max(start, m.start() - 80):m.start()] + " " + text[m.end():min(end, m.end() + 60)]
+        if CLR_OBTAIN_NEAR.search(near): continue
+        p_start, _ = _clause_bounds(text, max(start - 1, 0), max(start - 1, 0))
+        before = text[p_start:max(start - 1, 0)] if start else ""
+        _, n_end = _clause_bounds(text, min(end + 1, len(text)), min(end + 1, len(text)))
+        after = text[end + 1:n_end] if end < len(text) else ""
+        if _neighbour_says_obtain(before, level) or _neighbour_says_obtain(after, level): continue
+        return "ACTIVE"
+    return "OBTAIN" if seen else None
 
 def clearance_verdict(t):
     text = CLR_NOT_REQUIRED.sub("", t or "")
-    if CLR_ACTIVE.search(text) or level_required(text): return "ACTIVE REQUIRED"
-    if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"
+    if CLR_ACTIVE.search(text): return "ACTIVE REQUIRED"
+    level = level_verdict(text)
+    if level == "ACTIVE": return "ACTIVE REQUIRED"
+    if level == "OBTAIN" or CLR_OBTAIN.search(t or ""): return "OBTAINABLE"
     return "NONE STATED"
 
 # ---------------------------------------------------------------- JSON-LD

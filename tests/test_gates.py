@@ -344,6 +344,37 @@ def test_gates():
           and js.clearance_verdict("Clearance not required. Top Secret clearance required for the second phase.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("A Secret security clearance is required.") == "ACTIVE REQUIRED",
           "clearance: a level required in its own sentence is still ACTIVE REQUIRED next to obtaining or 'not required' wording")
+    check(js.clearance_verdict("Secret clearance required within 90 days of hire.") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance required (can be obtained after hire).") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance required or ability to obtain one.") == "OBTAINABLE"
+          and js.clearance_verdict("Top Secret clearance required following an offer.") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance required and we sponsor it.") == "OBTAINABLE",
+          "clearance: obtaining wording after the requirement in the same clause keeps it OBTAINABLE")
+    check(js.clearance_verdict("Candidates must be able to obtain a security clearance. Secret clearance required.") == "OBTAINABLE"
+          and js.clearance_verdict("Top Secret clearance is required; must be able to obtain it after an offer.") == "OBTAINABLE",
+          "clearance: obtaining wording in the clause before or after, naming the clearance, keeps it OBTAINABLE")
+    check(js.clearance_verdict("Must be able to obtain a driver's license. Secret clearance required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Proven ability to lead teams and a Secret clearance required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active Secret clearance required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Must hold an existing clearance.") == "ACTIVE REQUIRED",
+          "clearance: obtaining something else, or an ability that is not about the clearance, leaves the requirement ACTIVE")
+    check(js.clearance_verdict("Current TS/SCI required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Requirements: current Secret clearance.") == "ACTIVE REQUIRED",
+          "clearance: 'current' before a level, and TS/SCI said to be required without the word clearance, are ACTIVE")
+    check(js.clearance_verdict("Active Secret clearance required, relocation not required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("No clearance needed for the first phase, but TS/SCI clearance required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("No clearance needed but TS/SCI required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("A secret clearance is not required but TS/SCI is required.") == "ACTIVE REQUIRED",
+          "clearance: 'not required' and 'no clearance needed' stop at a comma or 'but'; a later clause keeps its requirement")
+    check(js.clearance_verdict("Secret clearance preferred, Bachelor's degree required.") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance preferred and a degree required.") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance, or higher, is required.") == "ACTIVE REQUIRED",
+          "clearance: a level that is only preferred is not required by a later 'required'; ', or higher,' is read through")
+    check(js.clearance_verdict("This role does not require an active Secret clearance.") == "NONE STATED"
+          and js.clearance_verdict("No Secret clearance needed.") == "NONE STATED"
+          and js.clearance_verdict("Candidates eligible for a Secret clearance are required.") == "OBTAINABLE",
+          "clearance: 'does not require', 'needed' and 'eligible for' are each read")
     check(js.keep(hard, 140000), 'clearance "keep": a posting that asks for an active clearance stays, with its verdict')
     js.configure(settings(clearance={"when_active_required": "drop"}))
     check(not js.keep(hard, 140000), 'clearance "drop": the same posting is dropped')
@@ -362,6 +393,8 @@ def test_gates():
     safe = js.markdown_cell("Lead|x\n<script>alert(1)</script>")
     check(safe == "Lead\\|x<br>&lt;script&gt;alert(1)&lt;/script&gt;",
           "markdown_cell escapes cell delimiters, line breaks, and raw HTML")
+    check(js.markdown_cell("C:\\x_y*z") == "C:\\\\x\\_y\\*z",
+          "markdown_cell doubles a backslash and escapes Markdown marks with one, so the cell shows the text as written")
     d1 = tempfile.mkdtemp(); p1 = os.path.join(d1, "d.md")
     wd_url = "https://acme.wd5.myworkdayjobs.com/en-US/Ext_Careers/job/Denver/Senior-Controller_R7?a=1&b=2"
     js.write_delta(p1, [row(employer="Lead|x\n<script>alert(1)</script>", req="7", title="Senior Controller",
@@ -1022,6 +1055,24 @@ def test_adapters():
             return Resp({"jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset'] + i}"} for i in range(20)] if json["offset"] < 60 else []})
     rows, note = js.workday("t|wd1|S", WDnototal())
     check(len(rows) == 60 and "60 of total not reported" in note, f"workday: a first page with no total is paged until a page comes back empty ({note})")
+    class WDbad:
+        """Page one is fine; page two is the defect named by `how`."""
+        def __init__(self, how): self.how = how
+        def post(self, url, json=None, **_):
+            if json["offset"] == 0:
+                return Resp({"total": 60, "jobPostings": [{"title": "x", "externalPath": f"/job/{i}"} for i in range(20)]})
+            if self.how == "list": return Resp([1, 2])
+            if self.how == "posts": return Resp({"jobPostings": "x"})
+            return Resp({"jobPostings": [{"title": "x", "externalPath": "/job/a"}, "junk"]})
+    for how, said, n in (("list", "STOPPED: non-object JSON at offset=20", 20),
+                         ("posts", "STOPPED: malformed jobPostings at offset=20", 20),
+                         ("item", "STOPPED: malformed posting at offset=20", 21)):
+        rows, note = js.workday("t|wd1|S", WDbad(how))
+        check(len(rows) == n and said in note, f"workday: a defective second page ({how}) stops the list, keeps the rows held, and says so ({note})")
+        posts, total, facets, stop = js._wd_pages("https://t.wd1.myworkdayjobs.com/wday/cxs/t/S/jobs", WDbad(how), {})
+        want = {"list": "not a JSON object at offset=20", "posts": "malformed jobPostings at offset=20",
+                "item": "malformed posting at offset=20"}[how]
+        check(len(posts) == 20 and total == 60 and stop == want, f"workday split pages: a defective page ({how}) ends the slice with '{want}' ({stop})")
     class WDhalf:
         def post(self, url, json=None, **_):
             if json["offset"] >= 40: return Resp({}, 502)
