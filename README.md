@@ -128,12 +128,15 @@ own pages make.
 ## Limits
 
 - The gates read text with patterns. They miss phrasings they were not written for. The sweep's
-  clearance verdict reads "Top Secret clearance required" as `NONE STATED` and "No active clearance
-  is required" as `ACTIVE REQUIRED`; `posting_census.py` exists because one verdict per posting is
-  not enough to act on. The census misreads too: it takes the title "Cleared Derivatives Analyst"
-  for a clearance requirement.
+  clearance verdict recognizes "Top Secret clearance required" and ignores "No active clearance
+  is required", but other phrasings can still be misclassified. `posting_census.py` also uses
+  pattern matching and is evidence for a person to check, not a definitive eligibility decision.
 - A posting with no published band passes the pay gate. On boards that print no bands the sweep is
   a list to read, not a shortlist.
+- `posting_census.py` accepts only credential-free HTTP(S) URLs that resolve to public IPs for
+  generic posting-page reads, and it does not follow redirects. Use a trusted roles CSV; DNS is
+  resolved again by the HTTP client after validation, so a hostile DNS rebinding attack is not
+  prevented by this check.
 - A range is skipped as "not a salary" when the words just before it say bonus, equity, relocation
   and the like. A real salary introduced as "salary plus bonus: $X - $Y" is skipped too, and the
   posting then counts as having no band.

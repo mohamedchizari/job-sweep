@@ -328,6 +328,9 @@ def test_gates():
           and js.clearance_verdict("A suitability review applies.") == "OBTAINABLE", "OBTAINABLE: public trust, suitability, citizenship")
     check(js.clearance_verdict("Ability to obtain a clearance. An active Secret clearance is a plus.") == "ACTIVE REQUIRED",
           "the sweep's one verdict: wording about an active clearance wins over wording about obtaining one")
+    check(js.clearance_verdict("Top Secret clearance required.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("No active clearance is required.") == "NONE STATED",
+          "clearance: recognize an explicit level requirement and ignore a negated active-clearance requirement")
     check(js.keep(hard, 140000), 'clearance "keep": a posting that asks for an active clearance stays, with its verdict')
     js.configure(settings(clearance={"when_active_required": "drop"}))
     check(not js.keep(hard, 140000), 'clearance "drop": the same posting is dropped')
@@ -343,6 +346,9 @@ def test_gates():
     js.write_delta(p0, rows, 140000, [], ["e"])
     md = open(p0).read()
     check("$0 - $185,000" in md, "write_delta survives an empty band_low")
+    safe = js.markdown_cell("Lead|x\n<script>alert(1)</script>")
+    check(safe == "Lead\\|x<br>&lt;script&gt;alert(1)&lt;/script&gt;",
+          "write_delta escapes cell delimiters, line breaks, and raw HTML from ATS fields")
     check("## Dropped by the band floor, passed by the title gate (1)" in md and "| u4 |" in md and "| u2 |" not in md and "| u3 |" not in md,
           "the delta's dropped list holds only rows the floor dropped: not an unread row, not a row outside the place gate")
 
@@ -1022,6 +1028,22 @@ def test_adapters():
                          "jobPostings": [{"title": "x", "externalPath": f"/job/{i}"} for i in range(20)] if json["offset"] == 0 else []})
     rows, note = js.workday("t|wd1|S", WDshort())
     check(len(rows) == 20 and "SHORT: the list ended at 20 of a reported 100" in note, f"workday: a list that ends short of its reported total is flagged ({note})")
+    class WDmalformed:
+        def post(self, url, json=None, **_):
+            if json["offset"] == 40 and self.calls > 1:
+                class BadJSON:
+                    status_code = 200
+                    def json(self): raise ValueError("invalid JSON")
+                return BadJSON()
+            self.calls += 1
+            return Resp({"total": 100 if json["offset"] == 0 else 0,
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/{json['offset'] + i}",
+                                          "locationsText": "Boulder, CO"} for i in range(20)]})
+        def __init__(self): self.calls = 0
+    rows, note = js.workday("t|wd1|S", WDmalformed())
+    check(len(rows) == 40 and "STOPPED: ValueError at offset=40" in note
+          and all(r.get("unread") == "YES" for r in rows),
+          "workday: malformed later-page JSON retains prior rows and marks the enumeration incomplete")
     ws = WDsame(); js.workday("acme|wd5|acme", ws, lane=lane)
     check(ws.got == ["https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/acme/job/Denver/Controller_R1"],
           "workday: the detail URL is built from the row's own path, also when the site is named like the tenant")

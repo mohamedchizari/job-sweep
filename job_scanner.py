@@ -69,6 +69,13 @@ CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(curren
 CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen)", re.I)
+CLR_NOT_REQUIRED = re.compile(
+    r"\bno\s+(?:active\s+|current\s+|existing\s+)?clearance\b[^.;]{0,40}\b(?:required|needed|necessary)\b"
+    r"|\b(?:active|current)\s+clearance\b[^.;]{0,25}\bnot\s+(?:required|needed|necessary)\b"
+    r"|\bdoes not require\s+(?:an?\s+)?(?:active\s+)?clearance\b", re.I)
+CLR_LEVEL_REQUIRED = re.compile(
+    r"\b(?:ts/sci|top secret|secret)\s+(?:security\s+)?clearance\b[^.;]{0,35}\b(?:is\s+)?(?:required|needed)\b",
+    re.I)
 
 # Two forms. "$150,000 - $180,000", and the same with "USD" between the first figure and the dash, where "USD" may
 # follow the second figure too: "$150,000 USD - $180,000 USD". No other currency code is read after the first
@@ -246,7 +253,8 @@ def greenhouse_band(pay_input_ranges):
     return (ctx, lo, hi) if hi else None
 
 def clearance_verdict(t):
-    if CLR_ACTIVE.search(t or ""): return "ACTIVE REQUIRED"
+    text = CLR_NOT_REQUIRED.sub("", t or "")
+    if CLR_ACTIVE.search(text) or CLR_LEVEL_REQUIRED.search(text): return "ACTIVE REQUIRED"
     if CLR_OBTAIN.search(t or ""): return "OBTAINABLE"
     return "NONE STATED"
 
@@ -603,8 +611,12 @@ def _wd_pages(url, sess, applied):
             return posts, total, facets, f"{type(e).__name__} at offset={offset}"
         if not isinstance(d, dict): return posts, total, facets, f"not a JSON object at offset={offset}"
         if not offset: total, facets = d.get("total"), d.get("facets") or []
-        page = d.get("jobPostings") or []
+        page = d.get("jobPostings")
+        if not isinstance(page, list):
+            return posts, total, facets, f"malformed jobPostings at offset={offset}"
         if not page: break
+        if any(not isinstance(post, dict) for post in page):
+            return posts, total, facets, f"malformed posting at offset={offset}"
         posts += page; offset += 20
         if offset >= 2000 or (isinstance(total, int) and offset >= total): break
         time.sleep(PAUSE)
@@ -708,21 +720,34 @@ def workday(spec, sess, lane=None, cap=400, **_):
     facets, split = [], None
     time.sleep(PAUSE)
     while True:
-        r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
-                                 "searchText": ""},
-                      headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
-        if r.status_code != 200:   # keep what was listed, say so, and still read the details below
-            stopped = f"  <-- STOPPED: HTTP {r.status_code} at offset={offset}; the list is longer"; break
-        d = r.json()
+        try:
+            r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
+                                     "searchText": ""},
+                          headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
+            if r.status_code != 200:   # keep what was listed, say so, and still read the details below
+                stopped = f"  <-- STOPPED: HTTP {r.status_code} at offset={offset}; the list is longer"; break
+            d = r.json()
+        except Exception as e:
+            stopped = f"  <-- STOPPED: {type(e).__name__} at offset={offset}; the list may be longer"; break
+        if not isinstance(d, dict):
+            stopped = f"  <-- STOPPED: non-object JSON at offset={offset}; the list may be longer"; break
         # `total` is reported only at offset 0; from offset 40 on it reads 0 with rows still present.
         # Trusting it on every page is why an earlier version stopped at 40 rows. A first page with
         # no total at all means: page until a page comes back empty.
         if offset == 0: total = d.get("total")
         if offset == 0: facets = d.get("facets") or []
-        posts = d.get("jobPostings", [])
+        posts = d.get("jobPostings")
+        if not isinstance(posts, list):
+            stopped = f"  <-- STOPPED: malformed jobPostings at offset={offset}; the list may be longer"; break
         if not posts: break
+        malformed = False
         for p in posts:
+            if not isinstance(p, dict):
+                malformed = True
+                continue
             rows.append(_wd_row(p, tenant, shard, site))
+        if malformed:
+            stopped = f"  <-- STOPPED: malformed posting at offset={offset}; the list may be longer"; break
         offset += 20
         if (total is not None and offset >= total) or offset >= 2000: break
         time.sleep(PAUSE)
@@ -1240,6 +1265,14 @@ def title_gate(r):
     t = r.get("title") or ""
     return bool(ok.search(t)) and not no.search(t)
 
+
+def markdown_cell(value):
+    """Keep untrusted values inside a single Markdown table cell."""
+    text = html.escape(str(value or ""), quote=False).replace("\\", "\\\\")
+    text = re.sub(r"([`*_{}\[\]#+!>])", r"\\\1", text)
+    return text.replace("|", r"\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def write_delta(path, uniq, floor, walls, employers):
     """The band gate against the title-word gate, on the same enumeration."""
     new = [r for r in uniq if keep(r, floor)]
@@ -1251,10 +1284,11 @@ def write_delta(path, uniq, floor, walls, employers):
         bh = band_high(r)
         band = (f"${int(r['band_low'] or 0):,} - ${bh:,} ({r['band_src']}: {r['band_ctx']})"
                 if bh else "no band published")
-        return f"| {r['employer']} | {r['title']} | {r['location']} | {band} | {r['clearance']} | {r['url']} |"
+        return "| " + " | ".join(markdown_cell(v) for v in
+                                 (r["employer"], r["title"], r["location"], band, r["clearance"], r["url"])) + " |"
     hdr = "| employer | title | location | band read | clearance verdict | url |\n|---|---|---|---|---|---|"
     out = [f"# Gate delta, band floor ${floor:,}, {date.today().isoformat()}", "",
-           f"Employers: {', '.join(employers)}. Enumerated {len(uniq)}; pass the band gate {len(new)}; "
+           f"Employers: {', '.join(markdown_cell(e) for e in employers)}. Enumerated {len(uniq)}; pass the band gate {len(new)}; "
            f"pass the title gate {len(kept_both) + len(dropped)}.", "",
            f"## Surfaced by the band gate, hidden by the title gate ({len(surfaced)})", hdr]
     out += [line(r) for r in sorted(surfaced, key=lambda r: (r["employer"], r["title"]))]
@@ -1262,7 +1296,7 @@ def write_delta(path, uniq, floor, walls, employers):
     out += [line(r) for r in sorted(dropped, key=lambda r: (r["employer"], r["title"]))]
     out += ["", f"## Pass both gates ({len(kept_both)})", hdr]
     out += [line(r) for r in sorted(kept_both, key=lambda r: (r["employer"], r["title"]))]
-    out += ["", "## Walls", ""] + [f"- {w}" for w in walls]
+    out += ["", "## Walls", ""] + [f"- {markdown_cell(w)}" for w in walls]
     out += ["", "Liveness: the list endpoint is truth. This file does not quote the qualifications or the "
             "clearance line of a role; posting_census.py reads those from the posting."]
     with open(path, "w", encoding="utf-8") as f:
