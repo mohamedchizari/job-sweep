@@ -375,6 +375,30 @@ def test_gates():
           and js.clearance_verdict("No Secret clearance needed.") == "NONE STATED"
           and js.clearance_verdict("Candidates eligible for a Secret clearance are required.") == "OBTAINABLE",
           "clearance: 'does not require', 'needed' and 'eligible for' are each read")
+    check(js.clearance_verdict("No TS/SCI required.") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI not required.") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI is not required.") == "NONE STATED"
+          and js.clearance_verdict("No Top Secret required.") == "NONE STATED",
+          "clearance: TS/SCI and Top Secret said not to be required, without the word clearance, are NONE STATED")
+    check(js.clearance_verdict("Secret Clearance Required: No") == "NONE STATED"
+          and js.clearance_verdict("Top Secret Clearance Required: None.") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: N/A") == "NONE STATED",
+          "clearance: a labelled field answered No, None or N/A is NONE STATED")
+    check(js.clearance_verdict("Secret Clearance Required: Yes") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No exceptions.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required - no exceptions.") == "ACTIVE REQUIRED",
+          "clearance: a field answered Yes, or 'no exceptions', keeps its requirement")
+    check(js.clearance_verdict("Secret clearance required. Must be able to obtain a CPA license within one year.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Must be able to obtain one year of experience. Secret clearance required.") == "ACTIVE REQUIRED",
+          "clearance: obtaining something else in the next or previous clause does not excuse a requirement ('one' of a year)")
+    check(js.clearance_verdict("Secret clearance required, and the company does not sponsor visas.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required with no sponsorship available.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required and visa sponsorship is available.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required and sponsorship is not available.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required and we sponsor visas for this role.") == "ACTIVE REQUIRED",
+          "clearance: refused sponsorship and visa sponsorship do not excuse a requirement")
+    check(js.clearance_verdict("Secret clearance required and the company will sponsor your clearance.") == "OBTAINABLE",
+          "clearance: sponsorship of the clearance itself still excuses it")
     check(js.keep(hard, 140000), 'clearance "keep": a posting that asks for an active clearance stays, with its verdict')
     js.configure(settings(clearance={"when_active_required": "drop"}))
     check(not js.keep(hard, 140000), 'clearance "drop": the same posting is dropped')
@@ -406,6 +430,9 @@ def test_gates():
           "write_delta escapes cell delimiters, line breaks, and raw HTML from ATS fields, walls and employer names")
     check("| " + wd_url + " |" in md1 and js.url_cell("https://x.example/a b|c<d>") == "https://x.example/a%20b%7Cc%3Cd%3E",
           "write_delta leaves a URL as written (underscore and ampersand kept) and encodes only what would break the cell")
+    check(js.url_cell("[click](javascript:alert(1))") == "%5Bclick%5D%28javascript:alert%281%29%29"
+          and js.url_cell("https://x.example/a[b](c)") == "https://x.example/a%5Bb%5D%28c%29",
+          "url_cell encodes [, ], ( and ), so a hostile URL cannot form a Markdown link")
     check("## Dropped by the band floor, passed by the title gate (1)" in md and "| u4 |" in md and "| u2 |" not in md and "| u3 |" not in md,
           "the delta's dropped list holds only rows the floor dropped: not an unread row, not a row outside the place gate")
 

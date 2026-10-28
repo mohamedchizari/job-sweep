@@ -132,8 +132,8 @@ own pages make.
   a Secret clearance is required" or "Secret clearance required within 90 days of hire" as
   `OBTAINABLE`, and "No active clearance is required" or "A Top Secret clearance is not required" as
   `NONE STATED`, but other phrasings can still be misclassified (docs/DESIGN.md, section 5 and its
-  limits). `posting_census.py` also uses
-  pattern matching and is evidence for a person to check, not a definitive eligibility decision.
+  limits). `posting_census.py` also uses pattern matching and is evidence for a person to check,
+  not a definitive eligibility decision.
 - A posting with no published band passes the pay gate. On boards that print no bands the sweep is
   a list to read, not a shortlist.
 - `posting_census.py` accepts only credential-free HTTP(S) URLs that resolve to public IPs for
