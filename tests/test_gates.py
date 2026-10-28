@@ -405,6 +405,18 @@ def test_gates():
     check(js.clearance_verdict("Secret Clearance Required: no less than Secret") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI Required: No later than the first day of work.") == "ACTIVE REQUIRED",
           "clearance: a field whose answer only starts with 'No' ('no less than', 'No later than') keeps its requirement")
+    check(js.clearance_verdict("Secret Clearance Required: No Telework: Yes") == "NONE STATED"
+          and js.clearance_verdict("Top Secret Clearance Required: None Location Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: N/A Location: Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No \u2013 unclassified work") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: None at this time") == "NONE STATED",
+          "clearance: a field answered No, None or N/A stays NONE STATED when the next label follows on the same line")
+    check(js.clearance_verdict("Top Secret Clearance Required: Not Required") == "NONE STATED"
+          and js.clearance_verdict("Is a Secret clearance required? Not required for this role.") == "NONE STATED",
+          "clearance: a field or question answered 'Not required' is NONE STATED")
+    check(js.clearance_verdict("Secret Clearance Required: No waivers.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No substitutions accepted.") == "ACTIVE REQUIRED",
+          "clearance: 'No waivers' and 'No substitutions' keep the requirement")
     check(js.clearance_verdict("TS/SCI required and polygraph not required.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("No TS/SCI? A Secret clearance is required.") == "ACTIVE REQUIRED",
           "clearance: 'not required' does not run back past another 'required', and 'No ...?' ends at the question mark")

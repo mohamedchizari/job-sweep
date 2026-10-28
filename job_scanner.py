@@ -76,8 +76,10 @@ CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtai
 # without the word "clearance" (a bare "Secret" is never read as a level). The gap never crosses a comma,
 # a semicolon, a question or exclamation mark, "but", or another "required"/"needed"/"necessary", so a later
 # clause keeps its own requirement: "Active Secret clearance required, relocation not required" and "TS/SCI
-# required and polygraph not required" stay ACTIVE. A field's answer (No, None, N/A, "Not at this time") must
-# end the field: "No exceptions", "no less than Secret" and "No later than ..." are not an answer of No.
+# required and polygraph not required" stay ACTIVE. A field's answer (No, None, N/A, "Not at this time",
+# "Not required") counts unless a word that changes it follows: "No exceptions", "no waivers", "no less
+# than Secret" and "No later than ..." are not an answer of No. The next label may follow on the same line
+# (HTML loses the line break): "Secret Clearance Required: No Telework: Yes" is an answer of No.
 _CLR_NOUN = (r"(?:(?:active|current|existing)\s+)?(?:(?:ts/sci|top secret)(?:\s+(?:security\s+)?clearance)?"
              r"|(?:secret\s+)?(?:security\s+)?clearance)")
 _CLR_GAP = r"(?:(?!\b(?:but|required|needed|necessary)\b)[^.;,?!])"
@@ -85,7 +87,8 @@ CLR_NOT_REQUIRED = re.compile(
     r"\bno\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b"
     r"|\b" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,25}\bnot\s+(?:required|needed|necessary)\b"
     r"|\b" + _CLR_NOUN + r"\s+(?:is\s+)?(?:required|needed)\s*[:?]\s*"
-    r"(?:no|none|n/?a|not\s+(?:at\s+this\s+time|currently|applicable))(?=\s*(?:[.;,!?()\n]|$))"
+    r"(?:no|none|n/?a|not\s+(?:at\s+this\s+time|currently|applicable|required|needed))\b"
+    r"(?!\s*(?:exceptions?|waivers?|substitut\w*|less|later|fewer|sooner|earlier|more|than)\b)"
     r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b", re.I)
 # A named level followed by "required" or "needed": "Top Secret clearance required", "TS/SCI required". The
 # gap stops at a comma (", or higher," excepted), a semicolon, "but", or a word that makes it a wish
