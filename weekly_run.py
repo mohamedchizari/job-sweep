@@ -71,9 +71,11 @@ def markdown_cell(value):
 
 def url_cell(value):
     """A URL in a Markdown cell, left as written so it can be copied and followed. Only what would end
-    the cell or the line, or open an HTML tag, is percent-encoded; nothing is escaped with a backslash."""
+    the cell or the line, open an HTML tag, or form a Markdown link ([, ], ( and )) is percent-encoded;
+    nothing is escaped with a backslash."""
     text = str(value or "").replace("\r", "").replace("\n", "").replace("\t", "")
-    for ch, enc in (("|", "%7C"), ("<", "%3C"), (">", "%3E"), (" ", "%20"), ("`", "%60")):
+    for ch, enc in (("|", "%7C"), ("<", "%3C"), (">", "%3E"), (" ", "%20"), ("`", "%60"),
+                    ("[", "%5B"), ("]", "%5D"), ("(", "%28"), (")", "%29")):
         text = text.replace(ch, enc)
     return text
 

@@ -130,6 +130,8 @@ def started_sweep(d):
         safe = wr.markdown_cell("A|B\n<script>")
         ok &= check(safe == "A\\|B<br>&lt;script&gt;", "delta rendering escapes table pipes, line breaks, and raw HTML")
         ok &= check(wr.markdown_cell("C:\\x_y") == "C:\\\\x\\_y", "delta rendering doubles a backslash and escapes a Markdown mark")
+        ok &= check(wr.url_cell("[click](javascript:alert(1))") == "%5Bclick%5D%28javascript:alert%281%29%29",
+                    "delta rendering encodes [, ], ( and ) in a URL, so it cannot form a Markdown link")
         wd = ("gamma", "7", "Controller", "Denver, CO", "NONE STATED", "150000", "190000", "Denver",
               "https://acme.wd5.myworkdayjobs.com/en-US/Ext_Careers/job/Denver/Controller_R7?a=1&b=2")
         rc, md = go("2026-04-11", rows=[one, wd])

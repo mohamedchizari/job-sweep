@@ -137,17 +137,26 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 "Around it" means: in the same clause (up to 80 characters before the statement and 60 after;
 a clause ends at a period or a semicolon) one of "obtain", "ability/able/eligible to obtain",
 "eligible for", "within N days/weeks/months", "after hire" or "following an offer", "can be
-obtained/sponsored", "sponsor"; or, in the clause just before or just after, obtaining that names
-the clearance ("Must be able to obtain a security clearance. Secret clearance required.") and
-names no other level ("Ability to obtain a Secret clearance. Top Secret clearance is required."
-stays `ACTIVE REQUIRED`). The gap between the level and "required" stops at a comma (", or
+obtained/sponsored", or "sponsor" when it is offered and is not visa sponsorship ("we sponsor
+it" counts; "does not sponsor visas", "no sponsorship", "visa sponsorship is available" and
+"sponsorship is not available" do not); or, in the clause just before or just after, obtaining
+that names the clearance ("Must be able to obtain a security clearance. Secret clearance
+required.") or says "it" or "one" directly after "obtain" ("must be able to obtain it after an
+offer"), and names no other level ("Ability to obtain a Secret clearance. Top Secret clearance
+is required." stays `ACTIVE REQUIRED`). Obtaining something else in that clause does not count:
+"Secret clearance required. Must be able to obtain a CPA license within one year." stays
+`ACTIVE REQUIRED`. The gap between the level and "required" stops at a comma (", or
 higher," excepted), a semicolon, "but", or "preferred", "desired" or "plus": "Secret clearance
 preferred, degree required" is not a requirement.
 
-Wording that says a clearance is not asked for ("No active clearance is required", "A Top Secret
-clearance is not required", "does not require a Secret clearance") is set aside before the
-`ACTIVE REQUIRED` tests run. Its gap stops at a comma, a semicolon or "but", so "Active Secret
-clearance required, relocation not required" keeps its requirement.
+Wording that says a clearance is not asked for is set aside before the `ACTIVE REQUIRED` tests
+run: "No active clearance is required", "A Top Secret clearance is not required", "does not
+require a Secret clearance"; TS/SCI and Top Secret without the word "clearance" ("No TS/SCI
+required", "TS/SCI is not required", "No Top Secret required"); and a labelled field answered
+No, None or N/A ("Secret Clearance Required: No"). A field answered "No exceptions" keeps its
+requirement. The gap stops at a
+comma, a semicolon or "but", so "Active Secret clearance required, relocation not required"
+keeps its requirement.
 
 `clearance.when_active_required` decides whether an `ACTIVE REQUIRED` posting is dropped or kept.
 Kept, it is written with its verdict. Dropped, it is in no output file; the run prints how many
@@ -222,10 +231,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 546 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 554 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 443 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 452 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -453,9 +462,16 @@ fixed here:
     being of distinct postings; the reason given for a capped slice that has no second facet; and
     that a total above 2,000, or 2,000 rows with no total, is flagged STOPPED and not split.
 - The clearance verdict (section 5) splits clauses at periods and semicolons, so an abbreviation
-  such as "U.S." starts a new clause. An obtaining word in the 60 characters after "required"
-  excuses the requirement even when it is about something else: "Secret clearance required to
-  start within 30 days" reads `OBTAINABLE`. ", or higher," is the only comma read through:
-  "Secret clearance, active, is required" reads `NONE STATED`.
+  such as "U.S." starts a new clause. In the same clause, an obtaining word in the 80 characters
+  before or the 60 after "required" excuses the requirement even when it is about something
+  else: "Secret clearance required to start within 30 days" and "Secret clearance required and
+  must obtain a CPA license" read `OBTAINABLE`. Sponsorship offered in the next clause is not
+  read: "Secret clearance required; we can sponsor it after hire." reads `ACTIVE REQUIRED`. A
+  sponsorship phrase the guards do not name ("sponsorship of work permits is available") still
+  excuses a requirement in its clause. ", or higher," is the only comma read through: "Secret
+  clearance, active, is required" reads `NONE STATED`.
+- `posting_census.py` does not follow redirects, so a page that answers with a redirect (http
+  to https, a locale path) is reported with its 3xx status as not read.
 - The delta's Markdown cells escape HTML and Markdown marks, so the raw `.md` file shows `&lt;`,
-  `&amp;` and backslashes (`\_`) that a Markdown viewer renders away. URLs are written as they are.
+  `&amp;` and backslashes (`\_`) that a Markdown viewer renders away. URLs are written as they
+  are, except that `|`, `<`, `>`, a space, a backtick, `[`, `]`, `(` and `)` are percent-encoded.
