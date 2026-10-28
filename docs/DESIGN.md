@@ -125,16 +125,29 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 `job_scanner.py` gives one verdict per posting:
 
 - `ACTIVE REQUIRED`: the title or the text asks for a clearance already held ("active",
-  "existing", "must hold", a level followed by "polygraph"), or names a level followed by
-  "required" or "needed" ("Top Secret clearance required") in a sentence that does not first speak
-  of obtaining it.
+  "existing", "must hold", "current" before a level, a level followed by "polygraph"), or names a
+  level followed by "required" or "needed" ("Top Secret clearance required", "TS/SCI required")
+  with no wording about obtaining it around that statement (below).
 - `OBTAINABLE`: the text speaks of ability to obtain one, of public trust or suitability, or of
-  citizenship. "Ability to obtain a Secret clearance is required" is `OBTAINABLE`.
+  citizenship; or every statement that a level is required has wording about obtaining it around
+  it. "Ability to obtain a Secret clearance is required", "Secret clearance required within 90
+  days of hire" and "Secret clearance required or ability to obtain one" are `OBTAINABLE`.
 - `NONE STATED`.
+
+"Around it" means: in the same clause (up to 80 characters before the statement and 60 after;
+a clause ends at a period or a semicolon) one of "obtain", "ability/able/eligible to obtain",
+"eligible for", "within N days/weeks/months", "after hire" or "following an offer", "can be
+obtained/sponsored", "sponsor"; or, in the clause just before or just after, obtaining that names
+the clearance ("Must be able to obtain a security clearance. Secret clearance required.") and
+names no other level ("Ability to obtain a Secret clearance. Top Secret clearance is required."
+stays `ACTIVE REQUIRED`). The gap between the level and "required" stops at a comma (", or
+higher," excepted), a semicolon, "but", or "preferred", "desired" or "plus": "Secret clearance
+preferred, degree required" is not a requirement.
 
 Wording that says a clearance is not asked for ("No active clearance is required", "A Top Secret
 clearance is not required", "does not require a Secret clearance") is set aside before the
-`ACTIVE REQUIRED` tests run.
+`ACTIVE REQUIRED` tests run. Its gap stops at a comma, a semicolon or "but", so "Active Secret
+clearance required, relocation not required" keeps its requirement.
 
 `clearance.when_active_required` decides whether an `ACTIVE REQUIRED` posting is dropped or kept.
 Kept, it is written with its verdict. Dropped, it is in no output file; the run prints how many
@@ -209,10 +222,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 531 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 546 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 416 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 443 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -221,6 +234,12 @@ The list was chosen by hand, and a rule outside it can still be untested. Gaps t
 the census's `--show` printing, the wording of most notes beyond the flags, and everything only a
 live service can show, which is all of what sections 7 and 9 say about how the services answer.
 For the split of a capped Workday list, section 12 names rules that no test pins.
+
+**What the comparisons below do not cover.** The replay, the live pairs and the 316 saved postings
+were all run before three later rules: the clearance verdict that reads a level said to be
+required (with the obtaining and "not required" wording around it, section 5), the census reading
+the posting's title with its text, and URLs written into the delta as they are (not escaped like
+text). Those three are checked by the offline tests only, not against live or recorded postings.
 
 **Against the private version, on recorded responses.** Two live runs minutes apart can differ
 because the lists move. To take the network out of the comparison, the private version was run
@@ -431,6 +450,12 @@ fixed here:
     that is not a list, or a posting in it that is not an object, stops that slice: the postings
     already read are kept, the reason is in the CAPPED flag, and no further slice is asked for.
   - Among the rules no test pins: the figure 6,000; the bound inside the second level; the count
-    being of distinct postings; the reason given for a capped slice that has no second facet; the
-    stop for a slice body that is not a JSON object; and that a total above 2,000, or 2,000 rows
-    with no total, is flagged STOPPED and not split.
+    being of distinct postings; the reason given for a capped slice that has no second facet; and
+    that a total above 2,000, or 2,000 rows with no total, is flagged STOPPED and not split.
+- The clearance verdict (section 5) splits clauses at periods and semicolons, so an abbreviation
+  such as "U.S." starts a new clause. An obtaining word in the 60 characters after "required"
+  excuses the requirement even when it is about something else: "Secret clearance required to
+  start within 30 days" reads `OBTAINABLE`. ", or higher," is the only comma read through:
+  "Secret clearance, active, is required" reads `NONE STATED`.
+- The delta's Markdown cells escape HTML and Markdown marks, so the raw `.md` file shows `&lt;`,
+  `&amp;` and backslashes (`\_`) that a Markdown viewer renders away. URLs are written as they are.
