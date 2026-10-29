@@ -125,45 +125,99 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 `job_scanner.py` gives one verdict per posting:
 
 - `ACTIVE REQUIRED`: the title or the text asks for a clearance already held ("active",
-  "existing", "must hold", "current" before a level, a level followed by "polygraph"), or names a
-  level followed by "required" or "needed" ("Top Secret clearance required", "TS/SCI required")
-  with no wording about obtaining it around that statement (below).
+  "existing", "must hold", "current" before a level, TS/SCI or Top Secret followed by
+  "polygraph"), or names a level followed by "required" or "needed" ("Top Secret clearance
+  required", "TS/SCI required") with no wording about obtaining it around that statement (below).
 - `OBTAINABLE`: the text speaks of ability to obtain one, of public trust or suitability, or of
   citizenship; or every statement that a level is required has wording about obtaining it around
   it. "Ability to obtain a Secret clearance is required", "Secret clearance required within 90
   days of hire" and "Secret clearance required or ability to obtain one" are `OBTAINABLE`.
 - `NONE STATED`.
 
-"Around it" means: in the same clause (up to 80 characters before the statement and 60 after;
-a clause ends at a period or a semicolon) one of "obtain", "ability/able/eligible to obtain",
-"eligible for", "within N days/weeks/months", "after hire" or "following an offer", "can be
-obtained/sponsored", or "sponsor" when it is offered and is not visa sponsorship ("we sponsor
-it" counts; "does not sponsor visas", "no sponsorship", "visa sponsorship is available",
+"Around it" means: in the same clause (up to 80 characters before the statement and 60 after; a
+clause ends at a period or a semicolon) obtaining wording such as "obtain", "ability/able/eligible
+to obtain", "eligible for", "within N days/weeks/months", "after hire" or "following an offer",
+"can be obtained/sponsored", or "sponsor" when it is offered and is not visa sponsorship ("we
+sponsor it" counts; "does not sponsor visas", "no sponsorship", "visa sponsorship is available",
 "sponsorship is not available", "we do not offer sponsorship" and "candidates requiring
 sponsorship" do not); or, in the clause just before or just after, obtaining that names the
-clearance ("Must be able to obtain a security clearance. Secret clearance required.") or says
-"it" or "one" directly after "obtain", or after "obtain and maintain", "obtain and hold",
-"obtain and keep" or "obtain/maintain" ("must be able to obtain it after an offer", "must be
-able to obtain and maintain one"), and names no other level ("Ability to obtain a Secret clearance. Top Secret clearance
-is required." stays `ACTIVE REQUIRED`). Obtaining something else in that clause does not count:
-"Secret clearance required. Must be able to obtain a CPA license within one year." and "...
-Must obtain one of the following certifications" stay `ACTIVE REQUIRED`. The gap between the level and "required" stops at a comma (", or
-higher," excepted), a semicolon, "but", or "preferred", "desired" or "plus": "Secret clearance
-preferred, degree required" is not a requirement.
+clearance ("Must be able to obtain a security clearance. Secret clearance required.") or says "it"
+or "one" directly after "obtain", or after "obtain and maintain", "obtain and hold", "obtain and
+keep" or "obtain/maintain" ("must be able to obtain it after an offer", "must be able to obtain
+and maintain one"), and names no other level ("Ability to obtain a Secret clearance. Top Secret
+clearance is required." stays `ACTIVE REQUIRED`). Obtaining something else in that clause does not
+count: "Secret clearance required. Must be able to obtain a CPA license within one year." and "...
+Must obtain one of the following certifications" stay `ACTIVE REQUIRED`. The gap between the level
+and "required" stops at a comma (", or higher,", ", or above,", ", or better," and ", or
+equivalent," excepted), a semicolon, "but", "preferred", "desired", "plus", "may", "might",
+"could" or "eligib...": "Secret clearance preferred, degree required" and "A Secret clearance may
+be required." are not requirements, and "TS/SCI eligibility required." reads `OBTAINABLE`
+("clearance eligibility" is obtaining wording). The gap ends at the first "required" or "needed",
+so a level field answered Yes keeps its requirement when another field follows ("Secret Clearance
+Required: Yes Travel Required: No"). A level and "required" that is a field label whose answer is
+not yes is not a requirement either: answered No or None (unless a keeping word follows, as
+below), N, N/A, TBD, Optional, Preferred, Desired, False, Unknown, Negative or "Not specified",
+"stated", "listed", "necessary" or "mandatory", after a colon or a question mark, with "for",
+"in", "to", "at" or "on" and up to 30 characters, or a short bracket such as "(Y/N)", between
+"required" and the answer ("Secret Clearance Required: N", "TS/SCI Required: TBD", "Secret
+Clearance Required (Y/N): N", "Secret Clearance Required at Start: No", "Is a Secret clearance
+required to perform this job? No"). After a spaced dash, or with no colon when a capitalised
+"Required" is followed by No, None, N, N/A or TBD, the answer counts only when it is bare:
+punctuation, the end, or a capitalised label and a colon follows ("Secret Clearance Required -
+No", "Secret Clearance Required No Location: Remote"), so a recruiter's one-line note keeps the
+requirement ("TS/SCI required - No C2C", "SECRET CLEARANCE REQUIRED NO C2C"). Answered "Not
+initially" or "Not at hire", the field reads `OBTAINABLE`.
 
 Wording that says a clearance is not asked for is set aside before the `ACTIVE REQUIRED` tests
 run: "No active clearance is required", "A Top Secret clearance is not required", "does not
-require a Secret clearance"; TS/SCI and Top Secret without the word "clearance" ("No TS/SCI
-required", "TS/SCI is not required", "No Top Secret required"); and a labelled field answered
-No, None, N/A, "Not at this time", "Not currently" or "Not applicable" ("Secret Clearance
-Required: No", "Top Secret Clearance Required: Not required"). The answer counts unless a word
-that changes it follows ("exceptions", "waivers", "substitutes", "less", "later", "fewer",
-"sooner", "earlier", "more", "than"), so "No exceptions", "no less than Secret" and "No later than
-the first day" keep the requirement, while "Secret Clearance Required: No Telework: Yes", where
-the next label follows on the same line once HTML loses the line break, is an answer of No. The gap stops at a comma, a semicolon, a question mark, an exclamation
-mark, "but", or another "required", "needed" or "necessary", so "Active Secret clearance
-required, relocation not required", "TS/SCI required and polygraph not required" and "No TS/SCI?
-A Secret clearance is required." keep their requirement.
+require a Secret clearance"; a current clearance that is only preferred, desired, a plus,
+encouraged, an advantage, an asset or given priority or preference in its sentence, with no
+"required", "must" or "needed" between ("Current TS/SCI a plus.", "Candidates with a current
+clearance are encouraged to apply.", "Preference will be given to candidates with a current Secret
+clearance.", "Nice to have: current Secret clearance."); TS/SCI and Top Secret without the word
+"clearance" ("No TS/SCI required", "TS/SCI is not required", "No Top Secret required"); and a
+labelled field answered No, None, N/A, "Not at this time", "Not currently", "Not applicable", "Not
+required" or "Not needed" ("Secret Clearance Required: No", "Top Secret Clearance Required: Not
+required"). The label may name a polygraph ("TS/SCI w/ Poly Required: No") or the position ("Is a
+Top Secret clearance required for this position? No"). N/A and the "Not ..." answers count
+whatever follows. A bare No or None is an answer of No unless what follows plainly keeps the
+requirement. A wrong `ACTIVE REQUIRED` drops a posting, so the rule leans toward the answer of No.
+Directly after the No, or after a hyphen with no space ("No-exceptions policy"), these keep the
+requirement: "exceptions" or "waivers" in any case, whatever follows ("No exceptions", "No
+Exceptions Location: Herndon, VA", "NO EXCEPTIONS Shift: Day"); exemptions, substitutes or
+substitutions, equivalent(s), alternatives (plural), compromises, deviations or interim(s), in
+lower case unless "or" follows ("No interim clearances", but not "No equivalent or higher
+clearance is needed"), or in any case when one of them, or a list of them joined by commas, "or",
+"and" or "/" with an optional "No", meets punctuation, a hyphen or the end ("No Substitutions or
+Deviations", "No Interim. Location: Remote", "No Exceptions/No Waivers"); in lower case,
+"sponsorship [is or are] [not] available, offered or provided", "less, lower, later, sooner or
+earlier than", "lower or less [one word] accepted, allowed or considered", "lapses, gaps or breaks
+in", "polygraph or poly [is] needed, required or necessary", "other [up to two words] needed,
+required, necessary or accepted", foreign nationals, dual citizens, green card holders; non-US
+citizens or persons, with "US" in any case; and CI, FSP, FS or Full Scope before poly or polygraph
+("No CI polygraph"). Apart from "exceptions" and "waivers", none of these keeps it when it starts
+the next label, a colon or question mark after up to five words that are lower case after the
+first or all capitalised ("No sponsorship available: N/A", "No polygraph required: No", "No CI
+Polygraph: Yes"). After a spaced dash the words explain the No and do not keep the requirement
+("No - interim clearance is acceptable", "None - waivers available"). Anything else is the next
+label, heading or sentence that HTML ran onto the same line, and the answer is No: "No Telework:
+Yes", "No We are an equal opportunity employer.", "No Sponsorship is not available for this
+position.", "No Interim or final clearance is needed for this role.", "None whatsoever", "No: see
+below", "No longer required for this role". A clearance or polygraph field (including the position
+form) answered "None at hire", "No at start", "No initially" or "None until", in lower case, reads
+`OBTAINABLE`. An answer that goes on to say no clearance is required ("Clearance Required: No
+current clearance required") is not a requirement either, unless a colon or question mark and an
+answer follow, which makes it the next label ("Secret Clearance Required: No Top Secret Clearance
+Required: Yes"). "No ... clearance required" is not set aside when a colon or question mark and an
+answer (Yes, No, None, Y, N, N/A, TBD, True, False) follow, which makes it the next label: "Travel
+Required: No Top Secret Clearance Required: Yes" stays `ACTIVE REQUIRED`, while "No Secret
+clearance required: this role is fully unclassified." and "No TS/SCI required? You can still
+apply." are set aside. In the not-required wording, the gap stops at a period, a comma, a
+semicolon, a question mark, an exclamation mark, a bracket, a spaced dash ("Active Secret
+clearance (polygraph not required)" and "Active TS/SCI - poly not required" keep their
+requirement), "but", or another "required", "needed" or "necessary", so "Active Secret clearance
+required, relocation not required", "TS/SCI required and polygraph not required" and "No TS/SCI? A
+Secret clearance is required." keep their requirement.
 
 `clearance.when_active_required` decides whether an `ACTIVE REQUIRED` posting is dropped or kept.
 Kept, it is written with its verdict. Dropped, it is in no output file; the run prints how many
@@ -238,10 +292,10 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 564 checks, with no route to any job
+**Offline tests.** `bash tests/run_all.sh` runs four files, 591 checks, with no route to any job
 site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 461 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks 515 chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
 for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
 fail every time, once by not finishing (without the Avature page bound its test never ends).
@@ -470,13 +524,31 @@ fixed here:
     that a total above 2,000, or 2,000 rows with no total, is flagged STOPPED and not split.
 - The clearance verdict (section 5) splits clauses at periods and semicolons, so an abbreviation
   such as "U.S." starts a new clause. In the same clause, an obtaining word in the 80 characters
-  before or the 60 after "required" excuses the requirement even when it is about something
+  before the level or the 60 after "required" excuses the requirement even when it is about something
   else: "Secret clearance required to start within 30 days" and "Secret clearance required and
   must obtain a CPA license" read `OBTAINABLE`. Sponsorship offered in the next clause is not
   read: "Secret clearance required; we can sponsor it after hire." reads `ACTIVE REQUIRED`. A
   sponsorship phrase the guards do not name ("sponsorship of work permits is available") still
-  excuses a requirement in its clause. ", or higher," is the only comma read through: "Secret
-  clearance, active, is required" reads `NONE STATED`.
+  excuses a requirement in its clause. ", or higher,", ", or above,", ", or better," and ", or
+  equivalent," are the only commas read through: "Secret clearance, active, is required" reads
+  `NONE STATED`. A labelled field answered a bare No or None
+  keeps its requirement only for the wording section 5 lists, and leans toward the answer of No:
+  a word not on the list ("Secret Clearance Required: No contractors", "TS/SCI Required: No more
+  than 12 months since last reinvestigation") and a capitalised keeping word other than
+  Exceptions or Waivers before more text ("No Interim clearances accepted", "No Less Than Secret
+  Location: Remote", "No Substitutions Accepted Location: Remote") read `NONE STATED`, and so does
+  "Interim Clearance Required: No Active Secret Clearance Required", whose answer is read with
+  the next heading. A lowercase next heading with no colon that starts with a keeping word keeps
+  the requirement: "Secret Clearance Required: No exceptions process described below" reads
+  `ACTIVE REQUIRED`. Two limits are older than this rule. "Active" near a level reads as a
+  requirement even when the posting prefers it ("Active Secret clearance preferred; will consider
+  candidates able to obtain one" can read `ACTIVE REQUIRED`). A label whose answer is a level
+  ("Clearance Required: Yes, Top Secret", "Clearance Level: TS/SCI") is not read as a requirement.
+  "Clearance Level Must Currently Possess: None Clearance Level Must Be Able to Obtain: Secret"
+  reads `ACTIVE REQUIRED`: "currently possess" reaches the next label's "Clearance". Two edges
+  of the field rule: "TS/SCI Required: None Waiver Eligible: Yes" reads `ACTIVE REQUIRED`
+  ("Waiver" always keeps), and "TS/SCI required - N. Virginia" reads `NONE STATED` ("N." is read
+  as an answer).
 - `posting_census.py` does not follow redirects, so a page that answers with a redirect (http
   to https, a locale path) is reported with its 3xx status as not read.
 - The delta's Markdown cells escape HTML and Markdown marks, so the raw `.md` file shows `&lt;`,

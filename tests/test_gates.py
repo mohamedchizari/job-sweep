@@ -417,6 +417,152 @@ def test_gates():
     check(js.clearance_verdict("Secret Clearance Required: No waivers.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI Required: No substitutions accepted.") == "ACTIVE REQUIRED",
           "clearance: 'No waivers' and 'No substitutions' keep the requirement")
+    check(js.clearance_verdict("Secret Clearance Required: No interim clearances accepted.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No lower than Secret.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No exemptions.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No-exceptions policy applies.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No polygraph needed") == "ACTIVE REQUIRED",
+          "clearance: a word that changes a bare No keeps the requirement (interim, lower, exemptions, No-exceptions, polygraph)")
+    check(js.clearance_verdict("Secret Clearance Required: No Benefits: Full package") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No - unclassified work") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No/Unclassified") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No currently") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No | Telework: Yes") == "NONE STATED",
+          "clearance: a bare No ends at a capitalised next label, a spaced dash, a slash, 'currently' or a bar")
+    check(js.clearance_verdict("Secret Clearance Required: No We are an equal opportunity employer.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No Position Type Full-time") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: No The successful candidate will support month-end close.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No location: Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No More Info: see below") == "NONE STATED",
+          "clearance: a bare No ends at the next sentence or heading, a lowercase label word, or a label and colon")
+    check(js.clearance_verdict("Secret Clearance Required: No Exceptions") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No exceptions or waivers") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No exceptions Telework: Yes") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active TS/SCI Required: No CI polygraph") == "ACTIVE REQUIRED",
+          "clearance: 'No Exceptions' at the end, lowercase 'exceptions' before the next label, and 'No CI polygraph' keep the requirement")
+    check(js.clearance_verdict("Secret Clearance Required: No Interim clearances accepted") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: No Less Than Secret") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No Sponsorship is not available for this position.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No Foreign nationals may apply.") == "NONE STATED"
+          and js.clearance_verdict("Top Secret Clearance Required: No Interim or final clearance is needed for this role.") == "NONE STATED",
+          "clearance: a capitalised word after a bare No starts the next heading or sentence unless it ends the text")
+    check(js.clearance_verdict("Secret clearance required: No polygraph required: No") == "NONE STATED"
+          and js.clearance_verdict("Secret clearance required: No sponsorship available: N/A") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No Polygraph Required For This Position: No") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No polygraph or clearance of any kind") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No CI Polygraph: Yes") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No interim or final clearance is needed for this role.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No sponsorship available") == "ACTIVE REQUIRED",
+          "clearance: a keeping word that starts the next label, lowercase or capitalised, does not keep the requirement")
+    check(js.clearance_verdict("Secret Clearance Required: No Exceptions or Waivers") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active Secret Clearance Required: None lower accepted") == "ACTIVE REQUIRED",
+          "clearance: 'No Exceptions or Waivers' and 'None lower accepted' keep the requirement")
+    check(js.clearance_verdict("Secret Clearance Required: No Exceptions Location: Herndon, VA") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Top Secret Clearance Required: No Exceptions. Location: Herndon, VA") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: NO EXCEPTIONS Shift: Day") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No Exceptions/No Waivers") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Top Secret Clearance Required: No exceptions: this is a contract requirement.") == "ACTIVE REQUIRED",
+          "clearance: 'exceptions' and 'waivers' keep the requirement in any case, before anything")
+    check(js.clearance_verdict("Secret Clearance Required: No - interim clearance is acceptable") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: None - waivers available") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No equivalent or higher clearance is needed") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: No non-US persons") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No non-U.S. citizens") == "ACTIVE REQUIRED",
+          "clearance: after a spaced dash or before 'or' a keeping word explains the No; 'non-US' in any case keeps")
+    check(js.clearance_verdict("Travel Required: No initially, up to 25% after the first year") == "NONE STATED"
+          and js.clearance_verdict("Is a Top Secret clearance required for this position? None at hire") == "OBTAINABLE",
+          "clearance: 'No initially' counts only after a clearance label, including the position form")
+    check(js.clearance_verdict("Secret Clearance Required: No Interim. Location: Remote") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No Substitutions") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No Substitutions or Deviations") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No Exceptions: all hires must hold it") == "ACTIVE REQUIRED",
+          "clearance: a capitalised keeping word or list of them that meets punctuation or the end keeps the requirement")
+    check(js.clearance_verdict("Secret Clearance Required: N Location: Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required (Y/N): N") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required - No") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required No Location: Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required at Start: No") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: TBD") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: Not necessary") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: Preferred") == "OBTAINABLE",
+          "clearance: a level field answered N, TBD, Optional, Preferred or 'Not necessary', or a label the field rule does not parse, is not a requirement")
+    check(js.clearance_verdict("Secret Clearance Required: Yes") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required No exceptions") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret clearance required - must be active on day one") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Travel Required: No Top Secret Clearance Required: Yes") == "ACTIVE REQUIRED",
+          "clearance: a level field answered Yes or 'No exceptions' stays ACTIVE, and 'No' from another field does not swallow the next label")
+    check(js.clearance_verdict("Active TS/SCI w/ Poly Required: No") == "NONE STATED"
+          and js.clearance_verdict("Is an active Top Secret clearance required for this position? No") == "NONE STATED",
+          "clearance: an 'Active' label with a polygraph or 'for this position' answered No is not a requirement")
+    check(js.clearance_verdict("Secret Clearance Required: Yes Travel Required: No") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI required - No C2C") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("SECRET CLEARANCE REQUIRED NO C2C") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required - No.") == "NONE STATED",
+          "clearance: a Yes field followed by another field's No, and 'required - No C2C', stay ACTIVE; a bare '- No' is not")
+    check(js.clearance_verdict("No Secret clearance required: this role is fully unclassified.") == "NONE STATED"
+          and js.clearance_verdict("No TS/SCI required? You can still apply.") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No alternative work schedules") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI Required: No alternatives") == "ACTIVE REQUIRED",
+          "clearance: 'No Secret clearance required:' before a sentence is set aside; 'alternative' (singular) does not keep")
+    check(js.clearance_verdict("Secret Clearance Required: Not initially; must obtain within 6 months of hire") == "OBTAINABLE"
+          and js.clearance_verdict("Secret Clearance Required: Not at hire") == "OBTAINABLE",
+          "clearance: a level field answered 'Not initially' or 'Not at hire' is OBTAINABLE")
+    check(js.clearance_verdict("Candidates with a current clearance are encouraged to apply.") == "NONE STATED"
+          and js.clearance_verdict("Current TS/SCI a plus.") == "NONE STATED"
+          and js.clearance_verdict("Current TS/SCI preferred, not required.") == "NONE STATED"
+          and js.clearance_verdict("Preference will be given to candidates with a current Secret clearance.") == "NONE STATED"
+          and js.clearance_verdict("Nice to have: current Secret clearance.") == "NONE STATED"
+          and js.clearance_verdict("Must have a current TS/SCI clearance.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Current TS/SCI clearance required; candidates with a CI poly are preferred.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Current TS/SCI clearance required, CI poly preferred.") == "ACTIVE REQUIRED",
+          "clearance: a current clearance that is only preferred, a plus or encouraged is not a requirement")
+    check(js.clearance_verdict("A Secret clearance may be required.") == "NONE STATED"
+          and js.clearance_verdict("Top Secret clearance may be needed for some assignments.") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI eligibility required.") == "OBTAINABLE"
+          and js.clearance_verdict("U.S. citizenship and Secret clearance eligibility required.") == "OBTAINABLE",
+          "clearance: 'may be required' is not a requirement; 'eligibility required' is OBTAINABLE")
+    check(js.clearance_verdict("Active Secret clearance (polygraph not required)") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active TS/SCI - poly not required") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active TS/SCI Required: No interims") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: Not mandatory") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: Negative") == "NONE STATED",
+          "clearance: 'not required' stops at a bracket or a spaced dash; 'No interims' keeps; 'Not mandatory' and 'Negative' are answers of No")
+    check(js.clearance_verdict("Active Secret Clearance Required: None at hire") == "OBTAINABLE"
+          and js.clearance_verdict("Secret Clearance Required: No Until Filled: Yes") == "NONE STATED",
+          "clearance: 'None at hire' under an 'Active' label is OBTAINABLE; 'No Until Filled:' is the next label")
+    check(js.clearance_verdict("Secret Clearance Required: No clearance required for this role.") == "NONE STATED"
+          and js.clearance_verdict("TS/SCI w/ Poly Required: No") == "NONE STATED"
+          and js.clearance_verdict("Is a Top Secret clearance required for this position? No") == "NONE STATED",
+          "clearance: 'No clearance required', a polygraph in the label and 'for this position' are read")
+    check(js.clearance_verdict("Secret Clearance Required: None whatsoever") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No this role is unclassified") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No \u2022 Location: Remote") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No: see below") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No longer required for this role") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No More Details: see posting") == "NONE STATED",
+          "clearance: a bare No followed by anything else, or by a label that starts with a keeping word, is an answer of No")
+    check(js.clearance_verdict("TS/SCI Required: No foreign nationals") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Active Secret Clearance Required: No equivalents accepted") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No lapses in clearance") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Secret Clearance Required: No Full Scope Poly") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: None at hire, candidate must obtain within six months") == "OBTAINABLE",
+          "clearance: 'No foreign nationals', 'No equivalents', 'No lapses', 'No Full Scope Poly', 'None at hire' keep the requirement")
+    check(js.clearance_verdict("Clearance Required: No current clearance required") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No current clearance needed for this role") == "NONE STATED"
+          and js.clearance_verdict("Clearance Required: No current clearance required, ability to obtain Secret") == "OBTAINABLE"
+          and js.clearance_verdict("Secret Clearance Required: No Top Secret Clearance Required: Yes") == "ACTIVE REQUIRED",
+          "clearance: a field answered 'No current clearance required' is not a requirement; a next label 'No ... Required:' is")
+    check(js.clearance_verdict("Secret Clearance Required: None at hire") == "OBTAINABLE"
+          and js.clearance_verdict("TS/SCI Required: No initially") == "OBTAINABLE"
+          and js.clearance_verdict("Secret clearance required at hire") == "ACTIVE REQUIRED",
+          "clearance: a field answered 'None at hire' or 'No initially' is OBTAINABLE")
+    check(js.clearance_verdict("Secret Clearance Required: No Other Requirements") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No Foreign Travel") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No unless assigned to the classified program") == "NONE STATED"
+          and js.clearance_verdict("Secret Clearance Required: No - one of our unclassified teams") == "NONE STATED"
+          and js.clearance_verdict("Secret clearance required: no other certifications needed") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("TS/SCI Required: No dual citizens") == "ACTIVE REQUIRED",
+          "clearance: 'Other' as a heading, 'Foreign Travel', 'unless' and 'one' do not keep a requirement; 'no other', 'dual citizens' do")
     check(js.clearance_verdict("TS/SCI required and polygraph not required.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("No TS/SCI? A Secret clearance is required.") == "ACTIVE REQUIRED",
           "clearance: 'not required' does not run back past another 'required', and 'No ...?' ends at the question mark")
