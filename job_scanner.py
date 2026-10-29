@@ -69,33 +69,67 @@ CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(curren
                         r"|\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b", re.I)
 CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
-                        r"preferred|u\.?s\.?\s+citizen)", re.I)
+                        r"preferred|u\.?s\.?\s+citizen|(?:clearance|ts/sci|secret)\s+eligib\w*|(?:clearance|ts/sci|secret|poly(?:graph)?)\s+(?:is\s+)?(?:required|needed)(?:\s+(?:for|in)\s+(?:this|the)\s+(?:position|role|job))?\s*[:?]\s*(?:no|none|not)\s*-?\s*"
+                        r"(?-i:at\s+(?:hire|start)|initially|until)\b)", re.I)
 # Wording that says a clearance is NOT asked for. It is cut from the text before the ACTIVE tests run, so
 # "A Top Secret clearance is not required", "No Secret clearance is required", "No TS/SCI required" or the
-# labelled field "Secret Clearance Required: No" is not read as a requirement. TS/SCI and Top Secret count
+# labelled field "Secret Clearance Required: No" is not read as a requirement; nor is a current clearance that
+# is only preferred, a plus, encouraged or given preference ("Current TS/SCI a plus."). TS/SCI and Top Secret count
 # without the word "clearance" (a bare "Secret" is never read as a level). The gap never crosses a comma,
 # a semicolon, a question or exclamation mark, "but", or another "required"/"needed"/"necessary", so a later
 # clause keeps its own requirement: "Active Secret clearance required, relocation not required" and "TS/SCI
-# required and polygraph not required" stay ACTIVE. A field's answer (No, None, N/A, "Not at this time",
-# "Not required") counts unless a word that changes it follows: "No exceptions", "no waivers", "no less
-# than Secret" and "No later than ..." are not an answer of No. The next label may follow on the same line
-# (HTML loses the line break): "Secret Clearance Required: No Telework: Yes" is an answer of No.
+# required and polygraph not required" stay ACTIVE. A field answered N/A, "Not at this time", "Not
+# currently", "Not applicable", "Not required" or "Not needed" is not a requirement, whatever follows. A
+# bare "No" or "None" is an answer of No unless what follows plainly keeps the requirement. A wrong ACTIVE
+# drops a posting, so the rule leans toward No. "Exceptions" and "waivers" keep it in any case, before
+# anything ("No Exceptions Location: Herndon, VA"). "Interim", "substitutions" and their like keep it in
+# lower case unless "or" follows, or in any case at punctuation or the end ("No Substitutions or
+# Deviations"). A few lowercase phrases keep it ("no less than Secret", "No polygraph needed", "No
+# sponsorship available", "No foreign nationals", "no other certifications needed"), and so does "No CI
+# polygraph". Apart from exceptions and waivers, none of these counts when it starts the next label, a
+# colon or question mark after up to five words ("No sponsorship available: N/A"), or after a spaced dash
+# ("No - interim clearance is acceptable"). HTML loses line breaks, so anything else is the next label,
+# heading or sentence and the answer is No ("No Telework: Yes", "No We are an equal opportunity
+# employer."). A clearance field answered "None at hire", "No initially" or "None until" reads OBTAINABLE
+# through CLR_OBTAIN. An answer that goes on "... clearance required" is taken with it ("Clearance
+# Required: No current clearance required") unless a colon or question mark follows. The label may name a
+# polygraph ("TS/SCI w/ Poly Required: No") or the position ("Is a Top Secret clearance required for this
+# position? No").
+_CLR_KEEP_NOUN = (r"(?:exceptions?|exemptions?|waivers?|substitut\w+|equivalen\w+|alternatives|compromises?"
+                  r"|deviations?|interims?)")
+_CLR_KEEP = (r"(?:(?i:(?:exceptions?|waivers?)\b)"
+             r"|(?i:" + _CLR_KEEP_NOUN + r"(?:\s*(?:,|or|and|/)\s*(?:no\s+)?" + _CLR_KEEP_NOUN + r")*)(?=\s*(?:[.;,!)\-]|$))"
+             r"|(?-i:" + _CLR_KEEP_NOUN + r"\b(?!\s+or\b)|sponsorship\s+(?:is\s+|are\s+)?(?:not\s+)?(?:available|offered|provided)\b"
+             r"|(?:less|lower|later|sooner|earlier)\s+than\b|(?:lower|less)(?:\s+\w+)?\s+(?:accepted|allowed|considered)\b"
+             r"|(?:lapses?|gaps?|breaks?)\s+in\b|poly(?:graph)?\s+(?:is\s+)?(?:needed|required|necessary)\b"
+             r"|other\s+(?:\w+\s+){0,2}?(?:needed|required|necessary|accepted)\b"
+             r"|(?:foreign\s+nationals?|dual\s+citizens?|green\s+card\s+holders?|non-?(?i:u\.?s\.?)\s+(?:citizens?|persons?))\b"
+             r"|(?:CI|FSP|FS|[Ff]ull[\s-]+[Ss]cope)\s+[Pp]oly(?:graph)?\b))")
+_CLR_LABEL_AHEAD = (r"(?!(?!(?i:exceptions?|waivers?)\b)[^\s:?.,;!]+(?:\s+(?-i:[a-z(])[^\s:?]*){0,4}\s*[:?])"
+                    r"(?!(?!(?i:exceptions?|waivers?)\b)(?-i:[A-Z])[^\s:?.,;!]*(?:\s+(?-i:[A-Z(])[^\s:?]*){0,4}\s*[:?])")
+_CLR_NO_KEEPS = r"(?!(?:-|\s*)" + _CLR_LABEL_AHEAD + _CLR_KEEP + r")"
 _CLR_NOUN = (r"(?:(?:active|current|existing)\s+)?(?:(?:ts/sci|top secret)(?:\s+(?:security\s+)?clearance)?"
              r"|(?:secret\s+)?(?:security\s+)?clearance)")
 _CLR_GAP = r"(?:(?!\b(?:but|required|needed|necessary)\b)[^.;,?!])"
+_CLR_GAP_NOT = r"(?:(?!\s[-\u2013]\s|\()" + _CLR_GAP + r")"   # "not required" also stops at a bracket or a spaced dash
 CLR_NOT_REQUIRED = re.compile(
-    r"\bno\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b"
-    r"|\b" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,25}\bnot\s+(?:required|needed|necessary)\b"
-    r"|\b" + _CLR_NOUN + r"\s+(?:is\s+)?(?:required|needed)\s*[:?]\s*"
-    r"(?:no|none|n/?a|not\s+(?:at\s+this\s+time|currently|applicable|required|needed))\b"
-    r"(?!\s*(?:exceptions?|waivers?|substitut\w*|less|later|fewer|sooner|earlier|more|than)\b)"
-    r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b", re.I)
+    r"\bno\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b(?!\s*[:?]\s*(?:yes|no|none|y|n|n/?a|tbd|true|false)\b)"
+    r"|\b" + _CLR_NOUN + r"\b" + _CLR_GAP_NOT + r"{0,25}\bnot\s+(?:required|needed|necessary)\b"
+    r"|\b" + _CLR_NOUN + r"(?:\s+(?:w/|with)\s*(?:full[\s-]scope\s+|ci\s+)?poly(?:graph)?)?\s+(?:is\s+)?(?:required|needed)"
+    r"(?:\s+(?:for|in)\s+(?:this|the)\s+(?:position|role|job))?\s*[:?]\s*"
+    r"(?:(?:n/?a|not\s+(?:at\s+this\s+time|currently|applicable|required|needed))\b|(?:no|none)\b" + _CLR_NO_KEEPS
+    + r"(?:\s+" + _CLR_NOUN + r"\b" + _CLR_GAP + r"{0,40}\b(?:required|needed|necessary)\b(?!\s*[:?]\s*(?:yes|no|none|y|n|n/?a|tbd|true|false)\b))?)"
+    r"|\bdoes not require\s+(?:an?\s+)?" + _CLR_NOUN + r"\b"
+    r"|\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b(?:(?!\b(?:required|must|needed)\b)[^.;]){0,60}?\b(?:preferred|desired|plus|encouraged|priorit\w*|preferen\w*|advantage|asset)\b"
+    r"|\b(?:preferen\w*|priorit\w*|desired|nice\s+to\s+have)\b(?:(?!\b(?:required|must|needed)\b)[^.;]){0,60}?\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b", re.I)
 # A named level followed by "required" or "needed": "Top Secret clearance required", "TS/SCI required". The
-# gap stops at a comma (", or higher," excepted), a semicolon, "but", or a word that makes it a wish
-# ("Secret clearance preferred, degree required" is not a clearance requirement). Whether it counts as ACTIVE is level_verdict()'s call.
+# gap ends at the first "required" or "needed" and stops at a comma (", or higher/above/better/equivalent,"
+# excepted), a semicolon, "but", or a word that makes it a wish or a maybe ("Secret clearance preferred, degree
+# required" and "A Secret clearance may be required" are not requirements; "TS/SCI eligibility required" is
+# OBTAINABLE through CLR_OBTAIN). Whether it counts as ACTIVE is level_verdict()'s call.
 CLR_LEVEL_REQUIRED = re.compile(
     r"\b(?:ts/sci(?:\s+(?:security\s+)?clearance)?|(?:top secret|secret)\s+(?:security\s+)?clearance)\b"
-    r"(?:,\s*or\s+(?:higher|above|better|equivalent)\b,?|(?!\b(?:but|preferred|desired|plus)\b)[^.;,]){0,35}"
+    r"(?:,\s*or\s+(?:higher|above|better|equivalent)\b,?|(?!\b(?:but|preferred|desired|plus|may|might|could|eligib\w*)\b)[^.;,]){0,35}?"
     r"\b(?:is\s+)?(?:required|needed)\b",
     re.I)
 # Wording, in the same clause as such a requirement, that says the clearance may be obtained: before it
@@ -123,6 +157,18 @@ CLR_OBTAIN_REF = re.compile(
     r"|(?:\s+[\w/-]+){0,4}?\s+(?:(?:security\s+)?clearance|ts/sci|top secret|secret)\b)",
     re.I)
 CLR_LEVEL_WORD = re.compile(r"ts/sci|top secret|secret", re.I)
+# After a level-and-"required" match: a field whose answer is not yes ("Secret Clearance Required: N", "TS/SCI
+# Required: TBD", "... (Y/N): N", "... at Start: No", "... Not initially") is not a requirement, and
+# level_verdict() skips such a match. After a spaced dash or a capitalised "Required" with no colon, the
+# answer counts only when it is bare ("... - No", "Secret Clearance Required No Location: Remote"), so
+# "TS/SCI required - No C2C" keeps its requirement.
+_CLR_BARE = r"(?=\s*(?:[.;,!)]|$)|\s+(?-i:[A-Z])[^\s:?.,;!]*(?:\s+(?-i:[A-Z(])[^\s:?]*){0,4}\s*[:?])"
+_CLR_ANSWER_NOT_YES = (r"(?:(?:no|none)\b" + _CLR_NO_KEEPS + r"|(?:n|n/?a|tbd|optional|preferred|desired|false|unknown|negative"
+                       r"|not\s+(?:specified|stated|listed|necessary|mandatory|initially|at\s+(?:hire|start)))\b)")
+_CLR_FIELD_NOT_YES = re.compile(
+    r"(?:\s+(?:for|in|to|at|on)\b[^.:?;,]{0,30}?)?\s*(?:\([^)]{0,12}\)\s*)?"
+    r"(?:[:?]\s*" + _CLR_ANSWER_NOT_YES + r"|\s+[-\u2013]\s*" + _CLR_ANSWER_NOT_YES + _CLR_BARE + r")"
+    r"|(?<=(?-i:Required|REQUIRED))(?-i:\s+(?:No|NO|N|None|NONE|N/A|TBD))\b" + _CLR_NO_KEEPS + _CLR_BARE, re.I)
 
 # Two forms. "$150,000 - $180,000", and the same with "USD" between the first figure and the dash, where "USD" may
 # follow the second figure too: "$150,000 USD - $180,000 USD". No other currency code is read after the first
@@ -318,6 +364,7 @@ def level_verdict(text):
     in the clause just before or after; None when no level is said to be required."""
     seen = False
     for m in CLR_LEVEL_REQUIRED.finditer(text):
+        if _CLR_FIELD_NOT_YES.match(text, m.end()): continue
         seen = True
         level = CLR_LEVEL_WORD.search(m.group(0)).group(0).lower()
         start, end = _clause_bounds(text, m.start(), m.end())
