@@ -80,6 +80,7 @@ flag.
 |---|---|
 | `job_scanner.py` | The sweep: one adapter per ATS, the gates, `roles.csv`, the WALLS list, `--delta`, `--discover`, `--probe`. |
 | `sweep_settings.py` | Loads and checks the settings file. |
+| `clearance_rule.py` | The clearance verdict's first reader, one pure function: labelled fields ("Must Currently Possess: None ... Must Be Able to Obtain: Secret" is `OBTAINABLE`), a required interim clearance (`ACTIVE REQUIRED`), "clearable" (`OBTAINABLE`); everything else goes to the regex reading in `job_scanner.py`. |
 | `posting_census.py` | Second pass. Fetches each kept posting, saves its text, and quotes the clearance line, the pay line and the years-of-experience lines. |
 | `weekly_run.py` | Canary, sweep, and a delta against the previous run: walls, new roles, closed roles. |
 | `config.example.json` | Made-up settings to copy. |
@@ -131,7 +132,8 @@ own pages make.
   clearance verdict reads "Top Secret clearance required" as `ACTIVE REQUIRED`, "Ability to obtain
   a Secret clearance is required" or "Secret clearance required within 90 days of hire" as
   `OBTAINABLE`, and "No active clearance is required" or "A Top Secret clearance is not required" as
-  `NONE STATED`, but other phrasings can still be misclassified (docs/DESIGN.md, section 5 and its
+  `NONE STATED`, and the labelled fields "Clearance Level Must Currently Possess: None ... Must Be Able to
+  Obtain: Secret" as `OBTAINABLE` (`clearance_rule.py`), but other phrasings can still be misclassified (docs/DESIGN.md, section 5 and its
   limits). `posting_census.py` also uses pattern matching and is evidence for a person to check,
   not a definitive eligibility decision.
 - A posting with no published band passes the pay gate. On boards that print no bands the sweep is

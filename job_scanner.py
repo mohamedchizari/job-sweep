@@ -40,6 +40,7 @@ except ImportError:
     sys.exit("pip install requests")
 
 import sweep_settings
+import clearance_rule
 
 UA = dict(sweep_settings.HEADERS)
 TIMEOUT = 25
@@ -378,13 +379,20 @@ def level_verdict(text):
         return "ACTIVE"
     return "OBTAIN" if seen else None
 
-def clearance_verdict(t):
+def _clearance_verdict_regex(t):
+    """The regex reading on its own: ACTIVE wording, then a required level, then obtaining wording."""
     text = CLR_NOT_REQUIRED.sub("", t or "")
     if CLR_ACTIVE.search(text): return "ACTIVE REQUIRED"
     level = level_verdict(text)
     if level == "ACTIVE": return "ACTIVE REQUIRED"
     if level == "OBTAIN" or CLR_OBTAIN.search(t or ""): return "OBTAINABLE"
     return "NONE STATED"
+
+def clearance_verdict(t):
+    """The posting's clearance verdict. clearance_rule.py reads first (labelled "Must Currently Possess: None"
+    fields, a required interim clearance, "clearable"; see its docstring) and hands the rest to the regex
+    reading above."""
+    return clearance_rule.clearance_rule(t, _clearance_verdict_regex)
 
 # ---------------------------------------------------------------- JSON-LD
 # schema.org JobPosting, embedded in the detail page as application/ld+json. One parser for every
