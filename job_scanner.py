@@ -688,6 +688,32 @@ def eightfold(spec, sess, lane=None, **_):
 
 WD_PLACE_FACET = re.compile(r"location|distance|country|region|state|city", re.I)
 WD_SPLIT_ROWS = 6000      # once the split's queries have returned this many postings, it asks no further query
+WD_RETRIES = 2            # a page of the first list that fails in passing (WD_PASSING below, or HTTP 502-504) is asked again this many times
+# What counts as a page of the first list failing in passing: not JSON (requests' JSONDecodeError is a ValueError),
+# a dropped connection or a timeout (the built-in forms and requests' own), or a body cut off in transfer.
+WD_PASSING = (
+    ValueError,
+    ConnectionError,
+    TimeoutError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+# Faults that would otherwise match WD_PASSING: requests' URL, schema and header errors subclass ValueError, and its
+# TLS error subclasses its ConnectionError. They are caught first and never asked again.
+WD_FAULTS = (
+    requests.exceptions.InvalidURL,
+    requests.exceptions.MissingSchema,
+    requests.exceptions.InvalidSchema,
+    requests.exceptions.InvalidHeader,
+    requests.exceptions.SSLError,
+)
+
+
+def _wd_capped(total):
+    """A query no page of which can go past 2,000 postings: a tenant that reports exactly 2,000 (it caps the
+    count) or more than 2,000 (it counts them all, but the pages still end at 2,000)."""
+    return isinstance(total, int) and total >= 2000
 
 
 def _wd_row(p, tenant, shard, site):
@@ -790,7 +816,7 @@ def _workday_split(url, sess, facets, seen, applied=None, depth=0, state=None):
             path = p.get("externalPath") if isinstance(p, dict) else None
             if path and path not in seen:
                 seen.add(path); new.append(p)
-        if total == 2000 and not stop:
+        if _wd_capped(total) and not stop:
             if depth == 0:
                 more, deeper = _workday_split(url, sess, sub_facets, seen, sub, 1, state)
                 new += more; info["problems"] += deeper["problems"]
@@ -801,12 +827,13 @@ def _workday_split(url, sess, facets, seen, applied=None, depth=0, state=None):
     return new, info
 
 
-def _wd_cap_note(split, n):
-    """The flag for a tenant that reported exactly 2,000: what the split read, or that the list is
+def _wd_cap_note(split, n, total=2000):
+    """The flag for a tenant that reported 2,000 or more: what the split read, or that the list is
     longer (with the reason, when the split looked for a facet and found none). `n` is the number
     of distinct postings held. A posting that has no value for the facet is in no slice, so the
     flag gives both numbers and never calls the list complete."""
-    base = "  <-- CAPPED: a total of exactly 2,000 means the tenant caps a query"
+    base = ("  <-- CAPPED: a total of exactly 2,000 means the tenant caps a query" if total == 2000 else
+            f"  <-- CAPPED: a total of {total:,} is more than one query pages (2,000)")
     if not split or not split["facet"]:
         why = f" ({split['problems'][0]})" if split and split["problems"] else ""
         return base + "; the list is longer." + why
@@ -815,6 +842,7 @@ def _wd_cap_note(split, n):
     why = list(dict.fromkeys(split["problems"]))
     if n < split["expected"]: why.append("fewer postings than the facet counts")
     if n > split["expected"]: why.append("more postings than the facet counts, so it does not cover the list")
+    if total > 2000 and n < total: why.append(f"fewer postings than the reported total of {total:,}")
     if why: return base + said + "; the list may still be longer (" + "; ".join(why) + ")."
     return base + said + "."
 
@@ -825,8 +853,8 @@ def workday(spec, sess, lane=None, cap=400, **_):
     lane-titled rows get GET {cxs}/{site}{externalPath} -> jobPostingInfo (description, location,
     additionalLocations). A row whose detail was not read is marked `unread` and never passes
     keep(): without that mark every unread row passed as "no band". A tenant answers at most 2,000
-    postings to one query: when the first page reports exactly 2,000 and no page of the list
-    failed, the query is asked again once per value of one facet (_workday_split), and the note
+    postings to one query: when the first page reports a total of 2,000 or more and no page of the
+    list failed, the query is asked again once per value of one facet (_workday_split), and the note
     gives the postings then held beside that facet's count."""
     tenant, shard, site = spec.split("|")
     url = f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
@@ -856,15 +884,28 @@ def workday(spec, sess, lane=None, cap=400, **_):
     facets, split = [], None
     time.sleep(PAUSE)
     while True:
-        try:
-            r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
-                                     "searchText": ""},
-                          headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
-            if r.status_code != 200:   # keep what was listed, say so, and still read the details below
-                stopped = f"  <-- STOPPED: HTTP {r.status_code} at offset={offset}; the list is longer"; break
-            d = r.json()
-        except Exception as e:
-            stopped = f"  <-- STOPPED: {type(e).__name__} at offset={offset}; the list may be longer"; break
+        d, err = None, ""
+        for attempt in range(1 + WD_RETRIES):  # a page that fails in passing is asked again
+            if attempt: time.sleep(PAUSE)
+            try:
+                r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
+                                         "searchText": ""},
+                              headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
+                if r.status_code != 200:
+                    err = f"HTTP {r.status_code}"
+                    if r.status_code in (502, 503, 504): continue
+                    break
+                d, err = r.json(), ""; break
+            except WD_FAULTS as e:              # a bad URL, schema or header, or a TLS failure: a fault, not asked again
+                d, err = None, type(e).__name__; break
+            except WD_PASSING as e:             # not JSON, a dropped connection, a timeout, a cut-off body: asked again
+                d, err = None, type(e).__name__
+            except Exception as e:               # any other error is a fault, not a page failing in passing
+                d, err = None, type(e).__name__; break
+        if err.startswith("HTTP "):   # keep what was listed, say so, and still read the details below
+            stopped = f"  <-- STOPPED: {err} at offset={offset}; the list is longer"; break
+        if err:
+            stopped = f"  <-- STOPPED: {err} at offset={offset}; the list may be longer"; break
         if not isinstance(d, dict):
             stopped = f"  <-- STOPPED: non-object JSON at offset={offset}; the list may be longer"; break
         # `total` is reported only at offset 0; from offset 40 on it reads 0 with rows still present.
@@ -888,7 +929,7 @@ def workday(spec, sess, lane=None, cap=400, **_):
         if (total is not None and offset >= total) or offset >= 2000: break
         time.sleep(PAUSE)
     held = len(rows)
-    if total == 2000 and not stopped:
+    if _wd_capped(total) and not stopped:
         seen = {r_["_path"] for r_ in rows}
         extra, split = _workday_split(url, sess, facets, seen)
         rows += [_wd_row(p, tenant, shard, site) for p in extra]
@@ -915,8 +956,8 @@ def workday(spec, sess, lane=None, cap=400, **_):
             + (f"{n} lane rows read from the detail endpoint" + (f" (capped at {cap})" if cap and n >= cap else "")
                if lane else "no --lane, so no detail was read and no row can pass")
             + failed_reads(rows) + stopped)
-    if total == 2000:      # a capped tenant reports exactly 2000 (ats-scrapers 0.3.0, workday.py)
-        note += _wd_cap_note(split, held)
+    if _wd_capped(total):      # a capped tenant: exactly 2,000 is its cap (ats-scrapers 0.3.0, workday.py); more is a count the pages cannot reach
+        note += _wd_cap_note(split, held, total)
     elif len(rows) >= 2000 and not stopped:
         note += "  <-- STOPPED at 2,000 rows: this tool pages no further; the list is longer."
     elif total is not None and len(rows) < total and not stopped:

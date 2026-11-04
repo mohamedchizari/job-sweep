@@ -263,11 +263,37 @@ M = [
  ("workday: 2,000-row stop off", J, "        if (total is not None and offset >= total) or offset >= 2000: break", "        if (total is not None and offset >= total): break"),
  ("workday: total re-read on every page", J, '        if offset == 0: total = d.get("total")', '        total = d.get("total")'),
  ("workday: missing total read as zero", J, '        if offset == 0: total = d.get("total")', '        if offset == 0: total = d.get("total", 0)'),
- ("workday: CAPPED flag off", J, "    if total == 2000:      # a capped tenant", "    if False:      # a capped tenant"),
+ ("workday: CAPPED flag off", J, "    if _wd_capped(total):      # a capped tenant", "    if False:      # a capped tenant"),
  ("workday: 2,000-row stop not flagged", J, "    elif len(rows) >= 2000 and not stopped:", "    elif False:"),
- ("workday: failure part-way not flagged", J, '            stopped = f"  <-- STOPPED: HTTP {r.status_code} at offset={offset}; the list is longer"; break', '            break'),
- ("workday: split of a capped list off", J, "    if total == 2000 and not stopped:", "    if False:"),
- ("workday: a capped list split after a page failed", J, "    if total == 2000 and not stopped:", "    if total == 2000:"),
+ ("workday: failure part-way not flagged", J, '            stopped = f"  <-- STOPPED: {err} at offset={offset}; the list is longer"; break', '            break'),
+ ("workday: split of a capped list off", J, "    if _wd_capped(total) and not stopped:", "    if False:"),
+ ("workday: a total over 2,000 not split", J, "    return isinstance(total, int) and total >= 2000\n", "    return total == 2000\n"),
+ ("workday: no retry of a page that fails in passing", J, "        for attempt in range(1 + WD_RETRIES):", "        for attempt in range(1):"),
+ ("workday: a refused page asked again", J, "                    if r.status_code in (502, 503, 504): continue", "                    continue"),
+ ("workday: retries unbounded by WD_RETRIES", J, "        for attempt in range(1 + WD_RETRIES):", "        for attempt in range(9):"),
+ ("workday: only HTTP 503 asked again", J, "                    if r.status_code in (502, 503, 504): continue", "                    if r.status_code in (503,): continue"),
+ ("workday: no pause before a page asked again", J, "            if attempt: time.sleep(PAUSE)\n", ""),
+ ("workday: not JSON not asked again", J, "    ValueError,\n    ConnectionError,\n", "    ConnectionError,\n"),
+ ("workday: the built-in dropped connection not asked again", J, "    ValueError,\n    ConnectionError,\n    TimeoutError,\n", "    ValueError,\n    TimeoutError,\n"),
+ ("workday: the built-in timeout not asked again", J, "    ConnectionError,\n    TimeoutError,\n    requests.exceptions.ConnectionError,\n", "    ConnectionError,\n    requests.exceptions.ConnectionError,\n"),
+ ("workday: requests' dropped connection not asked again", J, "    TimeoutError,\n    requests.exceptions.ConnectionError,\n", "    TimeoutError,\n"),
+ ("workday: requests' timeout not asked again", J, "    requests.exceptions.Timeout,\n    requests.exceptions.ChunkedEncodingError,\n", "    requests.exceptions.ChunkedEncodingError,\n"),
+ ("workday: a cut-off body not asked again", J, "    requests.exceptions.Timeout,\n    requests.exceptions.ChunkedEncodingError,\n)", "    requests.exceptions.Timeout,\n)"),
+ ("workday: any OSError asked again", J, "    requests.exceptions.ChunkedEncodingError,\n)", "    requests.exceptions.ChunkedEncodingError,\n    OSError,\n)"),
+ ("workday: faults asked again", J, "            except WD_FAULTS as e:              # a bad URL, schema or header, or a TLS failure: a fault, not asked again\n                d, err = None, type(e).__name__; break\n", ""),
+ ("workday: a bad URL asked again", J, "    requests.exceptions.InvalidURL,\n", ""),
+ ("workday: a missing schema asked again", J, "    requests.exceptions.MissingSchema,\n", ""),
+ ("workday: a bad header asked again", J, "    requests.exceptions.InvalidHeader,\n", ""),
+ ("workday: a TLS failure asked again", J, "    requests.exceptions.SSLError,\n", ""),
+ ("workday: HTTP 429 asked again", J, "                    if r.status_code in (502, 503, 504): continue", "                    if r.status_code in (429, 502, 503, 504): continue"),
+ ("workday: HTTP 500 asked again", J, "                    if r.status_code in (502, 503, 504): continue", "                    if r.status_code in (500, 502, 503, 504): continue"),
+ ("workday: asked again once, not twice", J, "WD_RETRIES = 2            #", "WD_RETRIES = 1            #"),
+ ("workday: asked again fifty times", J, "WD_RETRIES = 2            #", "WD_RETRIES = 50           #"),
+ ("workday: a total of 1,999 read as capped", J, "    return isinstance(total, int) and total >= 2000\n", "    return isinstance(total, int) and total >= 1999\n"),
+ ("workday split: one posting short of the total not said", J, "    if total > 2000 and n < total:", "    if total > 2000 and n + 1 < total:"),
+ ("workday: a refused page said to be 'maybe' longer", J, '            stopped = f"  <-- STOPPED: {err} at offset={offset}; the list is longer"; break', '            stopped = f"  <-- STOPPED: {err} at offset={offset}; the list may be longer"; break'),
+ ("workday: any error asked again", J, "                d, err = None, type(e).__name__; break\n        if err.startswith(\"HTTP \"):", "                d, err = None, type(e).__name__\n        if err.startswith(\"HTTP \"):"),
+ ("workday: a capped list split after a page failed", J, "    if _wd_capped(total) and not stopped:", "    if _wd_capped(total):"),
  ("workday split: a place facet used", J, "        if not isinstance(name, str) or not name or name in applied or WD_PLACE_FACET.search(name): continue", "        if not isinstance(name, str) or not name or name in applied: continue"),
  ("workday split: the applied facet used again", J, "        if not isinstance(name, str) or not name or name in applied or WD_PLACE_FACET.search(name): continue", "        if not isinstance(name, str) or not name or WD_PLACE_FACET.search(name): continue"),
  ("workday split: counts that add up to under 2,000 used", J, "        if len(vals) < 2 or total < 2000: continue", "        if len(vals) < 2: continue"),
@@ -291,6 +317,7 @@ M = [
  ("workday split: another facet counting more not said", J, '    if most > info["expected"]:', "    if False:"),
  ("workday split: fewer postings than counted not said", J, '    if n < split["expected"]: why.append("fewer postings than the facet counts")\n', ""),
  ("workday split: more postings than counted not said", J, '    if n > split["expected"]: why.append("more postings than the facet counts, so it does not cover the list")\n', ""),
+ ("workday split: fewer postings than a total over 2,000 not said", J, '    if total > 2000 and n < total: why.append(f"fewer postings than the reported total of {total:,}")\n', ""),
  ("workday split: an unfinished split reported plainly", J, '    if why: return base + said + "; the list may still be longer (" + "; ".join(why) + ")."\n', ""),
  ("workday split: no facet, no reason given", J, '''        why = f" ({split['problems'][0]})" if split and split["problems"] else ""''', '''        why = ""'''),
  ("workday: site-case probe off", J, "    if (first.status_code != 200 or not is_json(first)) and alt != site:", "    if False:"),
@@ -662,8 +689,11 @@ M = [
  ("census: generic private URL fetched", C, '        validate_public_url(url)\n', '        pass\n'),
  ("census: CSV URL redirects followed", C, 'timeout=30, allow_redirects=False)', 'timeout=30, allow_redirects=True)'),
  ("workday: malformed page discards earlier rows", J,
-  '        except Exception as e:\n            stopped = f"  <-- STOPPED: {type(e).__name__} at offset={offset}; the list may be longer"; break',
-  '        except Exception as e:\n            raise'),
+  '            except WD_PASSING as e:             # not JSON, a dropped connection, a timeout, a cut-off body: asked again\n                d, err = None, type(e).__name__',
+  '            except WD_PASSING as e:             # not JSON, a dropped connection, a timeout, a cut-off body: asked again\n                raise'),
+ ("workday: any other error on a page ends the run", J,
+  '            except Exception as e:               # any other error is a fault, not a page failing in passing\n                d, err = None, type(e).__name__; break',
+  '            except Exception as e:               # any other error is a fault, not a page failing in passing\n                raise'),
  ("weekly: failed primary still starts pass 2", W, '        if second and rc1 == 0:', '        if second:'),
  ("workday: a non-object page read as a page", J,
   '        if not isinstance(d, dict):\n            stopped = f"  <-- STOPPED: non-object JSON at offset={offset}; the list may be longer"; break\n', ''),
@@ -700,7 +730,15 @@ def limit():
     resource.setrlimit(resource.RLIMIT_AS, (1500 * 1024 * 1024, 1500 * 1024 * 1024))
 
 
-FILES = ("job_scanner.py", "sweep_settings.py", "posting_census.py", "weekly_run.py", "config.example.json")
+FILES = ("job_scanner.py", "sweep_settings.py", "clearance_rule.py", "posting_census.py", "weekly_run.py", "config.example.json")
+
+# A harness that cannot fail is not a test: if the copy it runs is broken (a file left out of FILES, a test that
+# fails on the code as it is), every rule below reads "caught". So two changes that break nothing run first, and
+# both must SURVIVE; if either is "caught", the run stops before the rules.
+CANARIES = [
+ ("canary: no change at all", J, "WD_SPLIT_ROWS = 6000", "WD_SPLIT_ROWS = 6000"),
+ ("canary: a comment added", J, "WD_SPLIT_ROWS = 6000", "WD_SPLIT_ROWS = 6000  # canary"),
+]
 
 def one(m):
     name, f, old, new = m
@@ -726,6 +764,13 @@ def one(m):
     return name, res
 
 def main():
+    for m in CANARIES:
+        name, r = one(m)
+        if r != "SURVIVED":
+            print(f"HARNESS FAULT: {name}: {r}. The copy the rules run in fails or is skipped without any change "
+                  "(a file missing from FILES, or a test that fails on the code as it is), so no rule could survive. Stopped.")
+            return 2
+    print(f"canaries: {len(CANARIES)} of {len(CANARIES)} survived (the copy runs clean)")
     with ThreadPoolExecutor(WORKERS) as ex:
         res = list(ex.map(one, M))
     for n, r in res:

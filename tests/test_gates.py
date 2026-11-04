@@ -916,6 +916,136 @@ def test_adapters():
     rows, note = js.workday("t|wd1|S", WDloose())
     check(len(rows) == 2600 and "2600 postings, 2100 counted" in note and "more postings than the facet counts" in note and "may still be longer" in note,
           f"workday split: more postings than the facet counts shows it does not cover the list, and that is said ({note})")
+    class WDover:
+        """A tenant that counts every posting (2,043) but pages only 2,000 of them.
+        jobFamilyGroup splits it: fam_a 1,200 and fam_b 843. With `deep`, fam_a holds 2,100 and is itself over
+        2,000; timeType splits that slice (full 1,100, part 1,000)."""
+        def __init__(self, deep=False):
+            self.deep, self.applied = deep, []
+            self.n, self.big = (3300, 2100) if deep else (2043, 1200)
+        def post(self, url, json=None, **_):
+            off, ap = json["offset"], json["appliedFacets"]
+            if off == 0 and ap: self.applied.append(ap)
+            ids = list(range(self.n))
+            fam = (ap.get("jobFamilyGroup") or [None])[0]; tt = (ap.get("timeType") or [None])[0]
+            if fam == "fam_a": ids = ids[:self.big]
+            if fam == "fam_b": ids = ids[self.big:]
+            if tt == "full": ids = ids[:1100]
+            if tt == "part": ids = ids[1100:]
+            if fam == "fam_a" and self.deep and not tt:
+                facets = [{"facetParameter": "timeType", "values": [{"id": "full", "count": 1100}, {"id": "part", "count": 1000}]}]
+            elif fam:
+                facets = []
+            else:
+                facets = [{"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": self.big}, {"id": "fam_b", "count": self.n - self.big}]}]
+            return Resp({"total": len(ids) if off == 0 else 0, "facets": facets if off == 0 else [],
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/x_{i}"} for i in ids[:2000][off:off + 20]]})
+    s = WDover(); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 2043 and len({r["_path"] for r in rows}) == 2043 and "STOPPED at 2,000 rows" not in note
+          and "CAPPED: a total of 2,043 is more than one query pages (2,000); asked again once per jobFamilyGroup value (2 queries): 2043 postings, 2043 counted by that facet." in note
+          and "fewer postings than the reported total" not in note,
+          f"workday: a total over 2,000 is split like a capped one, and every posting is held ({note})")
+    s = WDover(deep=True); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 3300 and {"jobFamilyGroup": ["fam_a"], "timeType": ["part"]} in s.applied and "longer" not in note,
+          f"workday split: a slice whose total is over 2,000 is split by a second facet ({note})")
+    class WDshort:
+        """2,500 postings counted, 2,000 paged. jobFamilyGroup counts 2,100 of them (fam_a 1,100, fam_b 1,000);
+        the 400 it leaves out are past the first 2,000, so no query ever lists them."""
+        def post(self, url, json=None, **_):
+            off, fam = json["offset"], (json["appliedFacets"].get("jobFamilyGroup") or [None])[0]
+            ids = list(range(2500))
+            if fam == "fam_a": ids = ids[:1100]
+            if fam == "fam_b": ids = ids[1100:2100]
+            facets = [] if fam else [{"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": 1100}, {"id": "fam_b", "count": 1000}]}]
+            return Resp({"total": len(ids) if off == 0 else 0, "facets": facets if off == 0 else [],
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/x_{i}"} for i in ids[:2000][off:off + 20]]})
+    rows, note = js.workday("t|wd1|S", WDshort())
+    check(len(rows) == 2100 and "2100 postings, 2100 counted by that facet" in note
+          and "the list may still be longer (fewer postings than the reported total of 2,500)." in note,
+          f"workday split: a split that holds fewer postings than a total over 2,000 says the list may be longer ({note})")
+    class WDone:
+        """2,043 postings counted, 2,000 paged. jobFamilyGroup counts 2,042 of them (fam_a 1,200, fam_b 842): the
+        last posting is in no slice, so the split ends exactly one short of the total."""
+        def post(self, url, json=None, **_):
+            off, fam = json["offset"], (json["appliedFacets"].get("jobFamilyGroup") or [None])[0]
+            ids = list(range(2043))
+            if fam == "fam_a": ids = ids[:1200]
+            if fam == "fam_b": ids = ids[1200:2042]
+            facets = [] if fam else [{"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": 1200}, {"id": "fam_b", "count": 842}]}]
+            return Resp({"total": len(ids) if off == 0 else 0, "facets": facets if off == 0 else [],
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/x_{i}"} for i in ids[:2000][off:off + 20]]})
+    rows, note = js.workday("t|wd1|S", WDone())
+    check(len(rows) == 2042 and "2042 postings, 2042 counted by that facet" in note
+          and "the list may still be longer (fewer postings than the reported total of 2,043)." in note,
+          f"workday split: a split one posting short of a total over 2,000 says the list may be longer ({note})")
+    class WD1999:
+        """1,999 postings: under one query's 2,000, so no flag and no split."""
+        def __init__(self): self.applied = []
+        def post(self, url, json=None, **_):
+            off, ap = json["offset"], json["appliedFacets"]
+            if ap: self.applied.append(ap)
+            facets = [{"facetParameter": "jobFamilyGroup", "values": [{"id": "fam_a", "count": 1000}, {"id": "fam_b", "count": 999}]}]
+            return Resp({"total": 1999 if off == 0 else 0, "facets": facets if off == 0 else [],
+                         "jobPostings": [{"title": "Controller", "externalPath": f"/job/x_{i}"} for i in range(off, min(off + 20, 1999))]})
+    s = WD1999(); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 1999 and not s.applied and "CAPPED" not in note and "STOPPED" not in note and "SHORT" not in note,
+          f"workday: a total of 1,999 is read whole, with no flag and no split ({note})")
+    class WDflaky:
+        """813 postings, no cap. The page at offset 660 fails `fails` times, then answers. `how`: "json" (not JSON),
+        "drop" and "btimeout" (the built-in ConnectionError and TimeoutError), "rdrop", "timeout" and "chunked"
+        (requests' ConnectionError, Timeout and ChunkedEncodingError), an HTTP code such as "503", or a fault:
+        "typeerror", "badurl", "schema", "header", "ssl", "redirects" (TypeError and requests' InvalidURL,
+        MissingSchema, InvalidHeader, SSLError, TooManyRedirects)."""
+        def __init__(self, how="json", fails=1): self.how, self.fails, self.at660, self.posts = how, fails, 0, 0
+        def post(self, url, json=None, **_):
+            self.posts += 1
+            off = json["offset"]
+            if off == 660:
+                self.at660 += 1
+                if self.at660 <= self.fails:
+                    if self.how == "json": return NotJSON({})
+                    if self.how == "drop": raise ConnectionError("dropped")
+                    if self.how == "timeout": raise js.requests.exceptions.Timeout("slow")
+                    if self.how == "btimeout": raise TimeoutError("slow")
+                    if self.how == "rdrop": raise js.requests.exceptions.ConnectionError("dropped")
+                    if self.how == "chunked": raise js.requests.exceptions.ChunkedEncodingError("cut off")
+                    if self.how == "typeerror": raise TypeError("a fault in the code, not the page")
+                    if self.how == "badurl": raise js.requests.exceptions.InvalidURL("bad url")
+                    if self.how == "schema": raise js.requests.exceptions.MissingSchema("no schema")
+                    if self.how == "header": raise js.requests.exceptions.InvalidHeader("bad header")
+                    if self.how == "ssl": raise js.requests.exceptions.SSLError("tls")
+                    if self.how == "redirects": raise js.requests.exceptions.TooManyRedirects("loop")
+                    return Resp({}, int(self.how))
+            return Resp({"total": 813 if off == 0 else 0,
+                         "jobPostings": [{"title": "x", "externalPath": f"/job/{i}"} for i in range(off, min(off + 20, 813))]})
+    check(js.WD_RETRIES == 2, f"workday: a page that fails in passing is asked again twice (WD_RETRIES = {js.WD_RETRIES})")
+    for how in ("json", "drop", "btimeout", "rdrop", "timeout", "chunked", "502", "503", "504"):
+        s = WDflaky(how); rows, note = js.workday("t|wd1|S", s)
+        check(len(rows) == 813 and "STOPPED" not in note and "SHORT" not in note and s.at660 == 2,
+              f"workday: a page of the first list that fails once ({how}) is asked again and the list is read to its end ({note})")
+    s = WDflaky("json", fails=99); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 660 and "STOPPED: ValueError at offset=660; the list may be longer" in note and s.at660 == 3,
+          f"workday: a page that keeps failing is asked 3 times, then the list stops and says so ({s.at660} POSTs; {note})")
+    s = WDflaky("502", fails=99); rows, note = js.workday("t|wd1|S", s)
+    check(len(rows) == 660 and "STOPPED: HTTP 502 at offset=660; the list is longer" in note and s.at660 == 3,
+          f"workday: a page that keeps answering HTTP 502 is asked 3 times, then the list stops: it is longer ({s.at660} POSTs; {note})")
+    for code in ("404", "429", "500"):
+        s = WDflaky(code, fails=99); rows, note = js.workday("t|wd1|S", s)
+        check(len(rows) == 660 and f"STOPPED: HTTP {code} at offset=660; the list is longer" in note and s.at660 == 1,
+              f"workday: a page refused with HTTP {code} is not asked again ({s.at660} POSTs at offset 660; {note})")
+    for how, name in (("typeerror", "TypeError"), ("badurl", "InvalidURL"), ("schema", "MissingSchema"),
+                      ("header", "InvalidHeader"), ("ssl", "SSLError"), ("redirects", "TooManyRedirects")):
+        s = WDflaky(how, fails=99); rows, note = js.workday("t|wd1|S", s)
+        check(len(rows) == 660 and f"STOPPED: {name} at offset=660; the list may be longer" in note and s.at660 == 1,
+              f"workday: an error that is not a page failing in passing ({name}) is not asked again ({s.at660} POSTs at offset 660; {note})")
+    sleeps, clock = [], js.time
+    js.time = type("Clock", (), {"sleep": staticmethod(sleeps.append)})
+    try:
+        s = WDflaky("503"); js.workday("t|wd1|S", s)
+    finally:
+        js.time = clock
+    check(s.at660 == 2 and len(sleeps) == s.posts - 1,
+          f"workday: a pause before every POST after the first, the one asked again included ({s.posts} POSTs, {len(sleeps)} pauses)")
     class WDodd(WD2k):
         def post(self, url, json=None, **_):
             r = WD2k.post(self, url, json=json); r.data["facets"] = 5; return r
@@ -1256,8 +1386,15 @@ def test_adapters():
             return Resp({"total": 5000 if json["offset"] == 0 else 0,
                          "jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset'] + i}"} for i in range(20)]})
     rows, note = js.workday("t|wd1|S", WDbig())
-    check(len(rows) == 2000 and "2000 of total 5000" in note and "STOPPED at 2,000 rows" in note and "CAPPED" not in note,
-          "workday: paging stops at 2,000 rows whatever the total, and the note says the list is longer")
+    check(len(rows) == 2000 and "2000 of total 5000" in note and "CAPPED: a total of 5,000 is more than one query pages (2,000); the list is longer." in note
+          and "no facet to split by" in note and "STOPPED at 2,000 rows" not in note,
+          f"workday: paging stops at 2,000 rows whatever the total; a total over 2,000 is capped, and with no facet the list is longer ({note})")
+    class WDendlessmain:
+        def post(self, url, json=None, **_):
+            return Resp({"jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset'] + i}"} for i in range(20)] if json["offset"] < 2500 else []})
+    rows, note = js.workday("t|wd1|S", WDendlessmain())
+    check(len(rows) == 2000 and "STOPPED at 2,000 rows" in note and "CAPPED" not in note,
+          f"workday: with no total reported, paging stops at 2,000 rows and the note says the list is longer ({note})")
     class WDnototal:
         def post(self, url, json=None, **_):
             return Resp({"jobPostings": [{"title": "x", "externalPath": f"/job/{json['offset'] + i}"} for i in range(20)] if json["offset"] < 60 else []})
