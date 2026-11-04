@@ -23,10 +23,10 @@ A, O, N = cr.ACTIVE_REQUIRED, cr.OBTAINABLE, cr.NONE_STATED
 
 # (text, verdict through job_scanner.clearance_verdict, short name)
 CASES = [
-    # the wording of the complaint (ONE LIST C15, 28 Oct 2026): HTML flattens the two labels onto one line
-    ("Clearance Level Must Currently Possess: None Clearance Level Must Be Able to Obtain: Secret", O, "complaint wording, one line"),
-    ("Clearance Level Must Currently Possess: None. Clearance Level Must Be Able to Obtain: Secret.", O, "complaint wording, with periods"),
-    ("Clearance Level Must Currently Possess:\nNone\nClearance Level Must Be Able to Obtain:\nSecret", O, "complaint wording, split across lines"),
+    # labelled-field wording seen on contractor postings: HTML flattens the two labels onto one line
+    ("Clearance Level Must Currently Possess: None Clearance Level Must Be Able to Obtain: Secret", O, "labelled-field wording, one line"),
+    ("Clearance Level Must Currently Possess: None. Clearance Level Must Be Able to Obtain: Secret.", O, "labelled-field wording, with periods"),
+    ("Clearance Level Must Currently Possess:\nNone\nClearance Level Must Be Able to Obtain:\nSecret", O, "labelled-field wording, split across lines"),
     ("Clearance Level Must Currently Possess: None Clearance Level Must Be Able to Obtain: Top Secret/SCI", O, "possess None, obtain TS/SCI"),
     ("Clearance Level Must Currently Possess: Secret Clearance Level Must Be Able to Obtain: Top Secret", A, "possess Secret, obtain TS"),
     ("Clearance Level Must Currently Possess: Top Secret/SCI Clearance Level Must Be Able to Obtain: TS/SCI w/ Poly", A, "possess TS/SCI"),
@@ -54,7 +54,7 @@ CASES = [
     ("Public Trust clearance required.", O, "Public Trust"),
     ("Secret clearance required within 90 days of hire.", O, "required within 90 days"),
     ("U.S. citizenship required; must be eligible for a security clearance.", O, "eligible for a clearance"),
-    ("Public trust or DoD clearance (possession of or ability to obtain). TS/SCI with CI Poly preferred.", O, "Appian wording, 29 Oct 2026"),
+    ("Public trust or DoD clearance (possession of or ability to obtain). TS/SCI with CI Poly preferred.", O, "possession-or-ability wording"),
     # none, or preferred only
     ("No clearance required.", N, "no clearance required"),
     ("A Top Secret clearance is not required for this role.", N, "clearance not required"),
@@ -76,7 +76,7 @@ def main():
         check(got == want, "%s: %r -> %s" % (name, text[:60], got) + ("" if got == want else " (want %s)" % want))
     # the pure function on its own, without the base reading
     check(cr.clearance_rule("Clearance Level Must Currently Possess: None Clearance Level Must Be Able to Obtain: Secret") == O,
-          "rule alone: complaint wording is OBTAINABLE")
+          "rule alone: labelled-field wording is OBTAINABLE")
     check(cr.clearance_rule("An interim Secret clearance is required to start.") == A, "rule alone: interim required")
     check(cr.clearance_rule("Must Currently Possess: Secret") == A, "rule alone: possess a level")
     check(cr.clearance_rule("Must be clearable.") == O, "rule alone: clearable")
@@ -86,7 +86,7 @@ def main():
     s = "Clearance Level Must Currently Possess:\tNone Must Be Able to Obtain: Secret"
     check(cr.clearance_rule(s, js._clearance_verdict_regex) == cr.clearance_rule(s, js._clearance_verdict_regex) == O
           and s.count("\t") == 1, "pure: same text, same verdict; input untouched")
-    check(cr.normalise("a\n\nb\t c – d") == "a b c - d", "normalise joins lines and dashes")
+    check(cr.normalise("a\n\nb\t c \u2013 d") == "a b c - d", "normalise joins lines and dashes")
     n = len(CASES) + 8
     print(("PASS" if OK else "FAIL") + " test_clearance_rule (%d checks)" % n)
     return 0 if OK else 1

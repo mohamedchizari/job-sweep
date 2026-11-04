@@ -70,7 +70,7 @@ CLEARABLE = re.compile(r"\bclearable\b|\bable\s+to\s+be\s+cleared\b|\bcapable\s+
 def normalise(text):
     """One line: newlines and tabs become spaces, unicode dashes and non-breaking spaces their ASCII forms,
     runs of whitespace one space."""
-    t = (text or "").replace("\xa0", " ").replace("–", "-").replace("—", "-").replace("‑", "-")
+    t = (text or "").replace("\xa0", " ").replace("\u2013", "-").replace("\u2014", "-").replace("\u2011", "-")
     return re.sub(r"\s+", " ", t).strip()
 
 
