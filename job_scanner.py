@@ -158,6 +158,11 @@ CLR_OBTAIN_REF = re.compile(
     r"|(?:\s+[\w/-]+){0,4}?\s+(?:(?:security\s+)?clearance|ts/sci|top secret|secret)\b)",
     re.I)
 CLR_LEVEL_WORD = re.compile(r"ts/sci|top secret|secret", re.I)
+# "active U.S. Secret clearance": the period inside "U.S." ends CLR_ACTIVE's gap, so this one form is read on its own.
+# The level and the word "clearance" must follow "U.S." directly, so a sentence that ends in "U.S." is never
+# joined to the next one ("... across the U.S. Secret clearance eligibility is a plus" is not this form).
+CLR_ACTIVE_US = re.compile(r"\bactive\s+U\.\s?S\.\s+(?:government\s+)?(?:ts/sci|top\s+secret|secret)\s+"
+                           r"(?:security\s+)?clearance\b", re.I)
 # After a level-and-"required" match: a field whose answer is not yes ("Secret Clearance Required: N", "TS/SCI
 # Required: TBD", "... (Y/N): N", "... at Start: No", "... Not initially") is not a requirement, and
 # level_verdict() skips such a match. After a spaced dash or a capitalised "Required" with no colon, the
@@ -382,7 +387,7 @@ def level_verdict(text):
 def _clearance_verdict_regex(t):
     """The regex reading on its own: ACTIVE wording, then a required level, then obtaining wording."""
     text = CLR_NOT_REQUIRED.sub("", t or "")
-    if CLR_ACTIVE.search(text): return "ACTIVE REQUIRED"
+    if CLR_ACTIVE.search(text) or CLR_ACTIVE_US.search(text): return "ACTIVE REQUIRED"
     level = level_verdict(text)
     if level == "ACTIVE": return "ACTIVE REQUIRED"
     if level == "OBTAIN" or CLR_OBTAIN.search(t or ""): return "OBTAINABLE"

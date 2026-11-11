@@ -319,6 +319,19 @@ def test_gates():
           "the title gate --delta compares with: a pass word passes, no pass word fails, a fail word fails whatever else the title says")
 
     hard = row(clearance="ACTIVE REQUIRED")
+    check(js.clearance_verdict("Currently possesses an active U.S. Secret clearance.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Must maintain an active U.S. Government Top Secret security clearance.") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Candidate currently holds an active U.S. Top Secret clearance.") == "ACTIVE REQUIRED",
+          "ACTIVE REQUIRED: 'active U.S. <level> clearance', the period in U.S. no longer ending the gap")
+    check(js.clearance_verdict("We support existing systems across the U.S. Ability to obtain a Secret clearance.") == "OBTAINABLE"
+          and js.clearance_verdict("Support active programs across the U.S. Secret clearance eligibility is a plus.") == "OBTAINABLE"
+          and js.clearance_verdict("Serve existing clients across the U.S. Government agencies require the ability to obtain a Secret clearance.") == "OBTAINABLE"
+          and js.clearance_verdict("Travel to active sites in the U.S. Citizenship and ability to obtain a Top Secret clearance required.") == "OBTAINABLE"
+          and js.clearance_verdict("Candidates currently holding or able to obtain a Secret clearance.") == "OBTAINABLE"
+          and js.clearance_verdict("The ideal candidate currently holds or is able to obtain a Secret clearance.") == "OBTAINABLE"
+          and js.clearance_verdict("The company currently holds a Top Secret facility clearance.") != "ACTIVE REQUIRED"
+          and js.clearance_verdict("Must be a U.S. citizen able to obtain a U.S. Secret clearance.") == "OBTAINABLE",
+          "not ACTIVE: a sentence ending in 'U.S.' is not joined to the next (even one starting Secret, Government, Citizenship), 'currently holding or able to obtain', a citizen who can obtain")
     check(js.clearance_verdict("Must hold an active TS/SCI clearance.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Ability to obtain a Secret clearance.") == "OBTAINABLE"
           and js.clearance_verdict("Close the books.") == "NONE STATED", "clearance wording read three ways")
