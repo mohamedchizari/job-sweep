@@ -51,14 +51,14 @@ def normalise(text):
 # ---------------------------------------------------------------- levels
 _NOT_PERSONAL = (r"(?!\s*(?:/\s*sci\b\s*)?(?:data|information|material|materials|documents?|networks?|systems?|environments?|facilit\w*"
                  r"|programs?|spaces?|areas?|scifs?|work\b|contracts?|projects?|customers?|missions?|opportunit\w*|intelligence"
-                 r"|reporting|infrastructure|inventor\w*|recipes?|security\s+requirements|requirements|positions|roles|jobs|teams?"
-                 r"|enclaves?|community|domains?|markings?|classification|level\s+(?:data|information|systems?|work)|clearance\s+process\w*"
+                 r"|reporting|infrastructure|inventor\w*|recipes?|security\s+requirements|requirements\b(?!\s*:)|positions|roles|jobs|teams?"
+                 r"|enclaves?|community|domains?|markings?|classification|classified|control\s+officer|tsco|government\s+clients?|clients?|accounts?|position\b|level\s+(?:data|information|systems?|work)|clearance\s+process\w*"
                  r"|clearance\s+requirements|processing))")
 _LEVEL = re.compile(
     r"(?:\b[Tt][Ss]\s*(?:/{1,2}|-|\s)\s*[Ss][Cc][Ii]\b" + _NOT_PERSONAL +
     r"|\btop[\s-]+secret(?:\s*/\s*sci)?\b(?!\s+service)" + _NOT_PERSONAL +
     r"|\bsecret[\s-]+level\s+(?:security\s+)?clearances?\b" + _NOT_PERSONAL +
-    r"|\bsecret\b[\"']?\s+(?:(?!service|facility|fcl)[\w/]+\s+){0,3}?(?:security\s+)?clearances?\b" + _NOT_PERSONAL +
+    r"|(?<!victoria's\s)\bsecret\b[\"']?\s+(?:(?!service|facility|fcl)[\w/]+\s+){0,3}?(?:security\s+)?clearances?\b" + _NOT_PERSONAL +
     r"|\b(?:dod|dos|doj|dhs|active|current|interim|final|existing|government|federal)\s+secret\b(?!\s+service)" + _NOT_PERSONAL +
     r"|(?-i:\bSCI\b)(?=\s*(?:clearance|access|eligib|w/|with|indoc))"
     r"|(?-i:\bTS\b)(?!\s*(?:/{1,2}|-)\s*SCI)(?=\s*(?:clearance|w/|with|\(|poly|security))"
@@ -88,25 +88,27 @@ def _family(level_text):
 
 
 def _mentions(u):
-    out = [(m.start(), m.end(), m.group(0)) for m in _LEVEL.finditer(u)]
-    out += [(m.start(), m.end(), m.group(0)) for m in _GENERIC.finditer(u)]
+    um = re.sub(r"\bactive\s+(?:directory|duty|learning|listening|record|voice)\b|\bstatus\s*:\s*active\b", lambda x: " " * len(x.group(0)), u, flags=re.I)
+    out = [(m.start(), m.end(), m.group(0)) for m in _LEVEL.finditer(um)]
+    out += [(m.start(), m.end(), m.group(0)) for m in _GENERIC.finditer(um)]
     out.sort()
     return out
 
 
 # ---------------------------------------------------------------- wordings
 _DECISIVE = re.compile(
-    r"\bcleared\s+(?:candidates|applicants|individuals|personnel|professionals)\s+only\b"
-    r"|\bonly\s+(?:currently\s+)?cleared\s+(?:candidates|applicants|individuals)\b"
-    r"|\b(?:candidates|applicants|those)\s+(?:without|lacking)\s+(?:an?\s+)?(?:active\s+|current\s+)?(?:[\w/]+\s+){0,2}?clearances?\s+"
+    r"\b(?:candidates|applicants|those)\s+(?:without|lacking)\s+(?:an?\s+)?(?:active\s+|current\s+)?(?:[\w/]+\s+){0,3}?"
     r"(?:will\s+not|won't|should\s+not|need\s+not|cannot|can\s*not)\s+(?:be\s+considered|apply)"
     r"|\b(?:awaiting|pending)\s+adjudication\s+need\s+not\s+apply\b"
-    r"|\b(?:pending|interim|in[\s-]process)\s+(?:\w+\s+){0,2}?(?:will\s+not|won't|not)\s+be\s+(?:considered|accepted|acceptable|submitted)"
-    r"|\binterim\s+(?:\w+\s+)?(?:is\s+)?not\s+(?:be\s+)?(?:acceptable|accepted)|\bclearances?\s+in\s+process\s+will\s+not\b"
     r"|\bmust\s+currently\s+(?:possess|hold)\s*:\s*(?:an?\s+|active\s+|current\s+)*(?:top\s+secret|secret|ts\b|tssci|ts/sci)", re.I)
+_DECISIVE_NAMES = re.compile(r"\bclearances?\b|\bts\s*/\s*sci\b|\btop\s+secret\b|\bsecret\b|\bpoly|\badjudication\b|\bpossess", re.I)
 # decisive only when the unit names a clearance and has no veto
 _DECISIVE_CTX = re.compile(
-    r"\bmust\s+already\s+(?:hold|possess|have|be\s+cleared|be\s+in\s+possession)\b"
+    r"\bcleared\s+(?:candidates|applicants|individuals|personnel|professionals)\s+only\b"
+    r"|\bonly\s+(?:currently\s+)?cleared\s+(?:candidates|applicants|individuals)\b"
+    r"|\b(?:pending|interim|in[\s-]process)\s+(?:\w+\s+){0,2}?(?:will\s+not|won't|not)\s+be\s+(?:considered|accepted|acceptable|submitted)"
+    r"|\binterim\s+(?:\w+\s+)?(?:is\s+)?not\s+(?:be\s+)?(?:acceptable|accepted)|\bclearances?\s+in\s+process\s+will\s+not\b"
+    r"|\bmust\s+already\s+(?:hold|possess|have|be\s+cleared|be\s+in\s+possession)\b"
     r"|\bonly\s+(?:candidates|applicants)\s+(?:who\s+(?:currently\s+)?(?:hold|possess|have)|with)\s+(?:an?\s+)?(?:active|current)\b[^.;]{0,60}\bwill\s+be\s+considered\b"
     r"|\bonly\s+(?:candidates|applicants)\s+who\s+are\s+(?:already\s+|currently\s+)?cleared\b"
     r"|\b(?:unable\s+to|not\s+able\s+to|cannot|can\s*not|can't|will\s+not|won't|do\s+not|does\s+not)\s+(?:sponsor|initiate|process)(?:\s+or\s+\w+)?\s+(?:an?\s+|new\s+|your\s+)?(?:security\s+)?(?:clearances?|investigations?|ssbis?)\b"
@@ -123,7 +125,9 @@ _VETO = re.compile(
     r"|prefer\w*|desir\w*|a\s+plus|plus\b|bonus|nice|ideal\w*|advantage\w*|beneficial|helpful|help\b|asset|appreciat\w*|valu(?:ed|able)"
     r"|recommend\w*|optional|welcom\w*|special\s+consideration|(?<!to\sbe\s)considered|consideration|great|love|apart|stronger|strengthen\w*"
     r"|extra|stand\s+out|prioriti[sz]\w*|priority|preference|favou?r\w*|leg\s+up|differentiator|encourag\w*|either|sooner|faster"
-    r"|expedit\w*|speed\s+up|fast[\s-]*track\w*"
+    r"|expedit\w*|speed\s+up|fast[\s-]*track\w*|competitive|benefit\w*|good\s+to\s+have|regarded|typically|usually|often"
+    r"|workforce|differential|of\s+our\s+(?:employees|staff|team|people)|\d+\s*%|markdown|merchandis\w*|inventory|pricing"
+    r"|recent\w*|inactive|re-?activat\w*|in[\s-]house|post[\s-]?start"
     # negation
     r"|not\s+(?:be\s+)?(?:required|a\s+(?:hard\s+)?requirement|necessary|needed|mandatory|essential|a\s+prerequisite|a\s+must)"
     r"|(?:do|does|did|will)\s+not\s+(?:need|require)|not\s+require|no\s+need|still\s+apply|may\s+apply|not\s+disqualif\w*"
@@ -161,7 +165,7 @@ _MASK = re.compile(
     r"|\bsponsorship\s+(?:is\s+)?(?:not|un)\s*available|\brequiring\s+sponsorship\s+will\s+not\s+be\s+considered"
     r"|\bdo(?:es)?\s+not\s+(?:offer|provide)\s+sponsorship|\bdo(?:es)?\s+not\s+sponsor\s+visas?"
     r"|\b(?:travel|telework|relocation|overtime|remote)\s+required\s*:\s*(?:no|yes|n|y)\b"
-    r"|\bdrug\s+(?:test|screen)\w*", re.I)
+    r"|\bdrug\s+(?:test|screen)\w*|\bactive\s+(?:directory|duty|learning|listening|record|voice)\b|\bstatus\s*:\s*active\b", re.I)
 _MASK_POLY = re.compile(r"\b(?:ci\s+|fs\s+|full[\s-]*scope\s+)?poly(?:graph)?\s+(?:is\s+)?(?:preferred|desired|a\s+plus|not\s+(?:required|needed)|optional)", re.I)
 
 
@@ -179,7 +183,7 @@ _HELD_AFTER = re.compile(
     r"\b(?:at\s+(?:the\s+)?time\s+of\s+(?:application|applying|hire|offer|submission)|prior\s+to\s+(?:start\w*|hire|beginning|day\s+one|employment)"
     r"|before\s+(?:start\w*|day\s+one|employment)|on\s+day\s+one|day[\s-]+one|required\s+to\s+start|in\s+place|in\s+hand|must\s+be\s+active)\b", re.I)
 _REQUIRED_AFTER = re.compile(r"^[^.;:,]{0,30}?\b(?:is\s+)?(?:required|mandatory|a\s+must|a\s+requirement|must\s+have)\b", re.I)
-_REQUIRED_BEFORE = re.compile(r"\b(?:requires?|required|requirement|mandatory)\s*(?::|-)?\s*(?:an?\s+|the\s+)?(?:\w+\s+){0,2}$", re.I)
+_REQUIRED_BEFORE = re.compile(r"\b(?:requires?|required|requirement|mandatory)\s*(?::|-)?\s*(?:an?\s+|the\s+)?(?:(?!for\b|to\b|by\b|of\b)\w+\s+){0,2}$", re.I)
 
 # ---------------------------------------------------------------- what the page offers
 _PAGE_OBTAIN = re.compile(
@@ -189,7 +193,7 @@ _PAGE_OBTAIN = re.compile(
 _PAGE_INTERIM = re.compile(r"\binterim\b(?![^.;]{0,30}\bnot\b)[^.;]{0,30}\b(?:accept\w*|considered|ok|okay|fine|sufficient|allowed)", re.I)
 _PAGE_SPONSOR = re.compile(r"\bsponsor\w*\b|\b(?:required|active)\s+at\s+start\s*:\s*no\b|\bsponsorship\s+available\s*:\s*yes\b", re.I)
 _FEDERAL = re.compile(r"\bconditions\s+of\s+employment\b|\bselectee\b|\bspecialized\s+experience\b|\bGS-\d|\busajobs\b|\bbackground\s+investigation\b", re.I)
-_VISA = re.compile(r"\bvisa|\bh-?1b\b|\bwork\s+authori|\bimmigration\b|\bemployment\s+authori", re.I)
+_VISA = re.compile(r"\bvisa|\bh-?1b\b|\bwork\s+authori|\bimmigration\b|\bemployment\s+authori|\bauthorized\s+to\s+work|\bemployer\s+sponsorship|\bwithout\s+(?:the\s+)?need\s+for\s+(?:employer\s+)?sponsorship", re.I)
 _POLY_WORD = re.compile(r"\bpoly(?:graph)?s?\b", re.I)
 _PRONOUN = re.compile(r"\b(?:it|one|the\s+same|same|such)\b", re.I)
 _NEGATED_SPONSOR = re.compile(
@@ -217,8 +221,11 @@ def _page_obtains(us):
     return fams
 
 
+_PAGE_ELIG = re.compile(r"\bsubject\s+to\s+a\s+(?:security|background)\s+investigation|\beligibility\s+requirements\s+for\s+access\s+to\s+classified", re.I)
+
+
 def _page_interim(us):
-    return any(_PAGE_INTERIM.search(u) for u in us)
+    return any(_PAGE_INTERIM.search(u) or _PAGE_ELIG.search(u) for u in us)
 
 
 _OB = re.compile(r"\b(?:obt(?:ai|ia)n\w*|attain\w*|acquire\w*|eligib\w*|(?:ability|able)\s+to(?:\s+be\s+approved\s+for)?|willing\w*\s+to\s+\w+"
@@ -256,39 +263,43 @@ _PURE_QUAL = re.compile(
     r"(?:preferred|desired|desirable|nice(?:\s+to\s+have)?|a\s+(?:big\s+|huge\s+|nice\s+)?plus|plus|bonus|optional|ideal|great|welcome|appreciated|valued"
     r"|not\s+(?:a\s+)?(?:required|requirement|mandatory|necessary|needed|essential|a\s+must)|isn't\s+required"
     r"|(?:must\s+be\s+)?(?:ability|able)\s+to\s+(?:obtain|get)(?:\s+(?:and\s+maintain\s+)?(?:it|one))?|obtainable|eligible|clearable"
-    r"|(?:candidates\s+)?must\s+be\s+able\s+to\s+obtain(?:\s+(?:it|one))?)\W*$", re.I)
+    r"|(?:candidates\s+)?must\s+be\s+able\s+to\s+obtain(?:\s+(?:it|one))?|good\s+to\s+have|helpful)"
+    r"(?:\W+(?:but\s+)?(?:not\s+(?:required|mandatory|necessary)|preferred|desired|a\s+plus|optional))*\W*$", re.I)
 
 
 def units(text):
     t = normalise(text)
     # an aside that names a level AND qualifies it is its own unit: "(Top Secret eligibility preferred)"
     t = re.sub(r"\(([^()\n]{1,160})\)", lambda m: ("\n" + m.group(1) + "\n") if (_LEVEL.search(m.group(1)) and _VETO.search(m.group(1))) else m.group(0), t)
-    out = []
+    out = []          # each unit is a list of pieces, joined at the end (joining as we go is quadratic)
     for piece in _HARD_SEP.split(t):
-        if not piece: continue
-        part = []
-        for u in _SOFT_SEP.split(piece):
+        if not piece or not piece.strip(" -*"): continue
+        first = True
+        for u in ([piece] if piece.rstrip().endswith(":") else _SOFT_SEP.split(piece)):   # "Helpful, but not required:" is a heading
             u = (u or "").strip(" -*")
             if not u: continue
-            if part and len(u) <= 60 and _PURE_QUAL.match(u):
-                part[-1] = part[-1] + ", " + u                       # "Active Secret - Highly Preferred" stays one unit
+            pure = len(u) <= 60 and _PURE_QUAL.match(u.strip("()[] ")) and not u.rstrip().endswith(":")
+            # "Active Secret - Highly Preferred", and a qualifier alone in the next cell or line: "<td>Preferred</td>"
+            if out and pure and (not first or len(out[-1]) < 40):
+                out[-1].append(", " + u)
             else:
-                part.append(u)
-        out.extend(part)
-    return out
+                out.append([u])
+            first = False
+    return ["".join(x) for x in out]
 
 
 _HEADLIKE = re.compile(r"^[^.!?]{1,80}$")
 _SOFT_HEAD = re.compile(
     r"\b(?:prefer\w*|desir\w*|nice[\s-]+(?:to|if)|bonus\s+(?:points|if|qualifications|skills)|pluses|(?:a|big|huge)\s+plus|plus\s+if|plus\s*$"
     r"|ideal(?:ly)?\s+(?:you|candidates?|qualifications|skills)|set\s+you\s+apart|even\s+better|might\s+also\s+have|would\s+be\s+(?:nice|great|a\s+plus)"
-    r"|stand\s+out|great\s+to\s+have|good\s+to\s+have|optional\s+(?:qualifications|skills)|optional\s*$|extra\s+credit|added\s+advantage|we\s+prefer)\b", re.I)
+    r"|stand\s+out|great\s+to\s+have|good\s+to\s+have|optional\s+(?:qualifications|skills)|optional\s*$|extra\s+credit|added\s+advantage|we\s+prefer"
+    r"|additional\s+qualifications|ideally|we'?d\s+love|we\s+would\s+love|bonus\s*$|helpful|differentiators?|extra\s+points|impress|assets?\s*$|nice[\s-]+to[\s-]+haves?)\b", re.I)
 _REQ_HEAD = re.compile(
     r"^\s*(?:(?:basic|minimum|required|mandatory|key|core|essential)\s+(?:qualifications|skills|requirements|experience)|requirements|required"
     r"|must[\s-]*haves?|what\s+you(?:'ll|\s+will)?\s+(?:need|bring)|you\s+(?:must\s+)?have|who\s+you\s+are|qualifications\s+you\s+must\s+have)\b", re.I)
 _END_HEAD = re.compile(
     r"^\s*(?:who\s+we\s+are|about\b|company\s+overview|overview|benefits|what\s+we\s+offer|perks|compensation|pay\b|salary|location"
-    r"|equal\s+(?:employment\s+)?opportunity|eeo|responsibilities|what\s+you(?:'ll|\s+will)\s+do|duties|job\s+description|conditions\s+of\s+employment"
+    r"|equal\s+(?:employment\s+)?opportunity|eeo|additional\s+information|job\s+details|other\s+information|(?:security\s+)?clearance\s+statement|travel\b|work\s+schedule|physical\s+(?:requirements|demands)|identity\s+statement|responsibilities|what\s+you(?:'ll|\s+will)\s+do|duties|job\s+description|conditions\s+of\s+employment"
     r"|the\s+role|why\s+join|our\s+company|company\b)", re.I)
 
 
@@ -297,11 +308,13 @@ _INLINE_HEAD = re.compile(
 
 
 def _heading(u):
-    """'soft', 'req', 'end' or None for a unit that reads as a section heading."""
+    """'soft', 'req', 'end', 'field', 'other' or None for a unit that reads as a section heading or a field."""
+    u = u.strip("#* ")
     if not _HEADLIKE.match(u): return None
     if ":" in u:
         head, rest = u.split(":", 1)
-        if rest.strip() and not _SOFT_HEAD.search(head): return None          # "Location: Remote" is a field, not a heading
+        if rest.strip() and (not _SOFT_HEAD.search(head) or re.search(r"[$\d]", rest) or re.search(r"(?:bonus|assets?)\s*$", head, re.I)):
+            return "field"                                                       # "Location: Remote", "Sign-On Bonus: $10,000"
     else:
         head = u
         if len(u.split()) > 6 or _mentions(u) or re.search(r"\b(?:is|are|must)\b", u, re.I): return None
@@ -309,6 +322,7 @@ def _heading(u):
     if _SOFT_HEAD.search(head) and not _REQ_HEAD.match(head): return "soft"
     if _REQ_HEAD.match(head): return "req"
     if _END_HEAD.match(head): return "end"
+    if ":" in u and not u.split(":", 1)[1].strip(): return "other"                 # an unknown heading ends a Required section
     return None
 
 
@@ -324,8 +338,9 @@ def held_required(text, explain=False):
         if h is None and inline: h = inline
         if h == "soft": section = "soft"
         elif h == "req": section = "req"
-        elif h == "end": section = None
-        if _DECISIVE.search(u) and "?" not in u and not _VISA.search(u):
+        elif h == "end" or (h == "other" and section == "req"): section = None
+        dd = _DECISIVE.search(u)
+        if dd and _DECISIVE_NAMES.search(dd.group(0)) and "?" not in u and not _VISA.search(u):
             why.append((u, "decisive"))
             return (True, why) if explain else True
         mu = _masked(u)
@@ -333,7 +348,9 @@ def held_required(text, explain=False):
         if dm:
             rest = mu if "considered" in dm.group(0) else mu[:dm.start()] + " " + mu[dm.end():]
             rest = re.sub(r"\bwill\s+be\s+con\w*", " ", rest)
-        if dm and (_CLEAR.search(u) or _LEVEL.search(u) or re.search(r"\bssbi|\bsci\b", u, re.I)) and not _VETO.search(rest) \
+        if dm and (_CLEAR.search(u) or _LEVEL.search(u) or re.search(r"\bssbi|\bsci\b|\binvestigation", u, re.I)) \
+                and (not re.match(r"(?:pending|interim|in)", dm.group(0), re.I) or re.search(r"clear|investigation|ssbi|adjudicat|secret|\bts\b|sci\b", u, re.I)) \
+                and not _VETO.search(rest) and not re.search(r"\bnot\s+only\b", u, re.I) \
                 and not _VISA.search(u) and not re.search(r"\bunclassified\b|\bnot\s+require|\bno\s+clearance\s+(?:is\s+)?(?:required|needed)", u, re.I):
             why.append((u, "decisive"))
             return (True, why) if explain else True
@@ -347,13 +364,15 @@ def held_required(text, explain=False):
         if obtained is None: obtained, interim_ok = _page_obtains(us), _page_interim(us)
         offered = lambda lv: "?" in obtained or _family(lv) in obtained
         for a, b, lv in ms:
-            before, after = u[max(0, a - 60):a], u[b:b + 80]
+            before, after = mu[max(0, a - 60):a], u[b:b + 80]
+            if re.search(r"\b(?:information|data|materials?|documents?)\s+(?:up\s+to|at)\s+(?:the\s+)?$", before, re.I): continue
             if (_HELD.search(before) or _HELD.search(lv) or _HELD_AFTER.search(after)) and not offered(lv):
                 why.append((u, "held: " + lv))
                 return (True, why) if explain else True
         weak = [lv for a, b, lv in ms if _REQUIRED_AFTER.search(u[b:b + 60]) or _REQUIRED_BEFORE.search(u[max(0, a - 40):a])]
         if fm: weak.append(fm.group(1))
-        if section == "req": weak += [lv for a, b, lv in ms]
+        if section == "req" and h != "field":
+            weak += [lv for a, b, lv in ms if not re.search(r"\b(?:for|to|of|from|about|in)\s+(?:an?\s+|the\s+)?$", u[max(0, a - 20):a], re.I)]
         if any(not offered(w) for w in weak) and not interim_ok:
             why.append((u, "required: " + ", ".join(weak)))
             return (True, why) if explain else True

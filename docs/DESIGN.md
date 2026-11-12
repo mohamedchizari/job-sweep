@@ -145,9 +145,9 @@ sentence that also says "adjudicated within the past 5 years" or "reinvestigatio
 
 Scored 12 Nov 2026 (roles wrongly dropped / held requirements kept): a blind set of 157 lines written before the
 reader and never read by its author, 0 / 16 (the published reader: 18 / 15); seven labelled sets, 1,253 lines, 0
-wrongly dropped in each. A fresh review's 359 realistic probes found 151 wrongly dropped in the first version of
-this reader; every one is fixed, but those probes are now seen and prove only that. Adversarial texts up to 1.1 MB
-read in under 2.5 s.
+wrongly dropped in each. Two fresh reviews wrote 646 realistic probes after reading the code (including 92 whole
+postings); they found 151, then 54, wrongly dropped lines, and every one is fixed, so those probes now prove only
+that. Adversarial texts of 1 MB read in under 2.1 s.
 
 The text below describes the regex reading, which still decides `OBTAINABLE` against `NONE STATED`.
 

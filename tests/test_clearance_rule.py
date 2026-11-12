@@ -100,20 +100,30 @@ def main():
             "Customs clearance experience required.", "Medical clearance required before travel.",
             "Our company holds a Top Secret facility clearance.",
             "Preferred Qualifications:\n- Active TS/SCI clearance\n- AWS certification",
-            "Do you hold an active TS/SCI clearance?"]
+            "Do you hold an active TS/SCI clearance?",
+            "Skills: Windows Server, Active Directory, VMware, Secret clearance",              # review 2 (12 Nov)
+            "Pending certifications will not be accepted; Security+ must be held at time of hire.",
+            "Clearance:\nApplicants selected will be subject to a security investigation and may need to meet eligibility "
+            "requirements for access to classified information; Secret clearance is required.",
+            "Helpful, but not required:\n- Active TS/SCI clearance\n- Experience with ROS2",
+            "Active Secret clearance - Highly Preferred",
+            "Over 85% of our workforce holds active security clearances.",
+            "Must be a U.S. citizen (required for Secret clearance)."]
     bad = [k for k in kept if js.clearance_verdict(k) == A]
     check(not bad, "keep by default: review findings stay kept " + (repr(bad) if bad else "(%d phrases)" % len(kept)))
     drop = ["Active TS/SCI with full-scope polygraph required.", "Cleared candidates only.",
             "Candidates without an active clearance will not be considered.", "We cannot sponsor a clearance for this role.",
             "Must currently hold a Top Secret clearance.", "Security Clearance Required: TS/SCI",
-            "Required Qualifications:\n- TS/SCI clearance\n- Python"]
+            "Required Qualifications:\n- TS/SCI clearance\n- Python",
+            "Candidates without an active TS/SCI will not be considered."]
     bad = [k for k in drop if js.clearance_verdict(k) != A]
     check(not bad, "keep by default: plain held wording still drops " + (repr(bad) if bad else "(%d phrases)" % len(drop)))
     import time
     t0 = time.time()
-    for big in ("<" * 200000, " " * 300000 + "but TS/SCI", "TS/SCI w/ Full Scope Poly - " * 20000, "secret " * 50000 + "clearance"):
+    for big in ("<" * 200000, " " * 300000 + "but TS/SCI", "TS/SCI w/ Full Scope Poly - " * 20000, "secret " * 50000 + "clearance",
+                "Active Secret clearance" + " - Welcome" * 30000, "active Secret clearance and ability to obtain Top Secret " * 5000):
         js.clearance_verdict(big)
-    check(time.time() - t0 < 10, "linear time: four 140-300 KB adversarial texts in %.1f s" % (time.time() - t0))
+    check(time.time() - t0 < 10, "linear time: six 140-300 KB adversarial texts in %.1f s" % (time.time() - t0))
     n = len(CASES) + 11
     print(("PASS" if OK else "FAIL") + " test_clearance_rule (%d checks)" % n)
     return 0 if OK else 1
