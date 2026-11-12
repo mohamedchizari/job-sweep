@@ -41,6 +41,7 @@ except ImportError:
 
 import sweep_settings
 import clearance_rule
+import held_clearance
 
 UA = dict(sweep_settings.HEADERS)
 TIMEOUT = 25
@@ -397,7 +398,10 @@ def clearance_verdict(t):
     """The posting's clearance verdict. clearance_rule.py reads first (labelled "Must Currently Possess: None"
     fields, a required interim clearance, "clearable"; see its docstring) and hands the rest to the regex
     reading above."""
-    return clearance_rule.clearance_rule(t, _clearance_verdict_regex)
+    if held_clearance.held_required(t):
+        return "ACTIVE REQUIRED"
+    v = clearance_rule.clearance_rule(t, _clearance_verdict_regex)
+    return "OBTAINABLE" if v == "ACTIVE REQUIRED" else v   # held_clearance.py alone decides what must already be held
 
 # ---------------------------------------------------------------- JSON-LD
 # schema.org JobPosting, embedded in the detail page as application/ld+json. One parser for every

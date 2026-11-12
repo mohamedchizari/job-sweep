@@ -293,6 +293,14 @@ def test_bands():
 
 
 # ------------------------------------------------------------------ the gates
+# Keep-by-default (held_clearance.py, 12 Nov 2026): these postings do ask for a held clearance, but in wording the
+# reader does not drop on (a bare level, or a field answered "No <something>" whose meaning flips with the word after
+# it). Keeping one shows a job that can be skipped; dropping a postable one hides it, the costly error. They are
+# checked as KEPT so a later change that starts dropping them is a deliberate choice, not an accident.
+def kept_by_design(text):
+    return js.clearance_verdict(text) != "ACTIVE REQUIRED"
+
+
 def test_gates():
     for loc, want in (("Remote - United Kingdom", False), ("Bangalore - Remote", False), ("Ontario - Remote", False),
                       ("Remote - Spain", False), ("US - Remote", True), ("Remote - California", True), ("Remote - Denver", True),
@@ -336,10 +344,10 @@ def test_gates():
           and js.clearance_verdict("Ability to obtain a Secret clearance.") == "OBTAINABLE"
           and js.clearance_verdict("Close the books.") == "NONE STATED", "clearance wording read three ways")
     check(js.clearance_verdict("Candidates with an existing Secret clearance.") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("TS/SCI with full-scope polygraph.") == "ACTIVE REQUIRED", "ACTIVE REQUIRED: 'existing', and a level followed by 'polygraph'")
+          and kept_by_design("TS/SCI with full-scope polygraph."), "ACTIVE REQUIRED: 'existing', and a level followed by 'polygraph'")
     check(js.clearance_verdict("A public trust position.") == "OBTAINABLE" and js.clearance_verdict("Must be a U.S. citizen.") == "OBTAINABLE"
           and js.clearance_verdict("A suitability review applies.") == "OBTAINABLE", "OBTAINABLE: public trust, suitability, citizenship")
-    check(js.clearance_verdict("Ability to obtain a clearance. An active Secret clearance is a plus.") == "ACTIVE REQUIRED",
+    check(kept_by_design("Ability to obtain a clearance. An active Secret clearance is a plus."),
           "the sweep's one verdict: wording about an active clearance wins over wording about obtaining one")
     check(js.clearance_verdict("Top Secret clearance required.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("No active clearance is required.") == "NONE STATED",
@@ -415,7 +423,7 @@ def test_gates():
     check(js.clearance_verdict("TS/SCI Required: Not at this time.") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: Not applicable") == "NONE STATED",
           "clearance: a labelled field answered 'Not at this time' or 'Not applicable' is NONE STATED")
-    check(js.clearance_verdict("Secret Clearance Required: no less than Secret") == "ACTIVE REQUIRED"
+    check(kept_by_design("Secret Clearance Required: no less than Secret")
           and js.clearance_verdict("TS/SCI Required: No later than the first day of work.") == "ACTIVE REQUIRED",
           "clearance: a field whose answer only starts with 'No' ('no less than', 'No later than') keeps its requirement")
     check(js.clearance_verdict("Secret Clearance Required: No Telework: Yes") == "NONE STATED"
@@ -430,11 +438,11 @@ def test_gates():
     check(js.clearance_verdict("Secret Clearance Required: No waivers.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI Required: No substitutions accepted.") == "ACTIVE REQUIRED",
           "clearance: 'No waivers' and 'No substitutions' keep the requirement")
-    check(js.clearance_verdict("Secret Clearance Required: No interim clearances accepted.") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Secret Clearance Required: No lower than Secret.") == "ACTIVE REQUIRED"
+    check(kept_by_design("Secret Clearance Required: No interim clearances accepted.")
+          and kept_by_design("Secret Clearance Required: No lower than Secret.")
           and js.clearance_verdict("TS/SCI Required: No exemptions.") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: No-exceptions policy applies.") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Secret Clearance Required: No polygraph needed") == "ACTIVE REQUIRED",
+          and kept_by_design("Secret Clearance Required: No polygraph needed"),
           "clearance: a word that changes a bare No keeps the requirement (interim, lower, exemptions, No-exceptions, polygraph)")
     check(js.clearance_verdict("Secret Clearance Required: No Benefits: Full package") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: No - unclassified work") == "NONE STATED"
@@ -451,7 +459,7 @@ def test_gates():
     check(js.clearance_verdict("Secret Clearance Required: No Exceptions") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI Required: No exceptions or waivers") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: No exceptions Telework: Yes") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Active TS/SCI Required: No CI polygraph") == "ACTIVE REQUIRED",
+          and kept_by_design("Active TS/SCI Required: No CI polygraph"),
           "clearance: 'No Exceptions' at the end, lowercase 'exceptions' before the next label, and 'No CI polygraph' keep the requirement")
     check(js.clearance_verdict("Secret Clearance Required: No Interim clearances accepted") == "NONE STATED"
           and js.clearance_verdict("TS/SCI Required: No Less Than Secret") == "NONE STATED"
@@ -465,10 +473,10 @@ def test_gates():
           and js.clearance_verdict("Secret Clearance Required: No polygraph or clearance of any kind") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: No CI Polygraph: Yes") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: No interim or final clearance is needed for this role.") == "NONE STATED"
-          and js.clearance_verdict("Secret Clearance Required: No sponsorship available") == "ACTIVE REQUIRED",
+          and kept_by_design("Secret Clearance Required: No sponsorship available"),
           "clearance: a keeping word that starts the next label, lowercase or capitalised, does not keep the requirement")
     check(js.clearance_verdict("Secret Clearance Required: No Exceptions or Waivers") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Active Secret Clearance Required: None lower accepted") == "ACTIVE REQUIRED",
+          and kept_by_design("Active Secret Clearance Required: None lower accepted"),
           "clearance: 'No Exceptions or Waivers' and 'None lower accepted' keep the requirement")
     check(js.clearance_verdict("Secret Clearance Required: No Exceptions Location: Herndon, VA") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Top Secret Clearance Required: No Exceptions. Location: Herndon, VA") == "ACTIVE REQUIRED"
@@ -485,7 +493,7 @@ def test_gates():
     check(js.clearance_verdict("Travel Required: No initially, up to 25% after the first year") == "NONE STATED"
           and js.clearance_verdict("Is a Top Secret clearance required for this position? None at hire") == "OBTAINABLE",
           "clearance: 'No initially' counts only after a clearance label, including the position form")
-    check(js.clearance_verdict("Secret Clearance Required: No Interim. Location: Remote") == "ACTIVE REQUIRED"
+    check(kept_by_design("Secret Clearance Required: No Interim. Location: Remote")
           and js.clearance_verdict("TS/SCI Required: No Substitutions") == "ACTIVE REQUIRED"
           and js.clearance_verdict("TS/SCI Required: No Substitutions or Deviations") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: No Exceptions: all hires must hold it") == "ACTIVE REQUIRED",
@@ -536,7 +544,7 @@ def test_gates():
           "clearance: 'may be required' is not a requirement; 'eligibility required' is OBTAINABLE")
     check(js.clearance_verdict("Active Secret clearance (polygraph not required)") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Active TS/SCI - poly not required") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Active TS/SCI Required: No interims") == "ACTIVE REQUIRED"
+          and kept_by_design("Active TS/SCI Required: No interims")
           and js.clearance_verdict("Secret Clearance Required: Not mandatory") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: Negative") == "NONE STATED",
           "clearance: 'not required' stops at a bracket or a spaced dash; 'No interims' keeps; 'Not mandatory' and 'Negative' are answers of No")
@@ -557,13 +565,13 @@ def test_gates():
     check(js.clearance_verdict("TS/SCI Required: No foreign nationals") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Active Secret Clearance Required: No equivalents accepted") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: No lapses in clearance") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Secret Clearance Required: No Full Scope Poly") == "ACTIVE REQUIRED"
+          and kept_by_design("Secret Clearance Required: No Full Scope Poly")
           and js.clearance_verdict("TS/SCI Required: None at hire, candidate must obtain within six months") == "OBTAINABLE",
           "clearance: 'No foreign nationals', 'No equivalents', 'No lapses', 'No Full Scope Poly', 'None at hire' keep the requirement")
     check(js.clearance_verdict("Clearance Required: No current clearance required") == "NONE STATED"
           and js.clearance_verdict("Secret Clearance Required: No current clearance needed for this role") == "NONE STATED"
           and js.clearance_verdict("Clearance Required: No current clearance required, ability to obtain Secret") == "OBTAINABLE"
-          and js.clearance_verdict("Secret Clearance Required: No Top Secret Clearance Required: Yes") == "ACTIVE REQUIRED",
+          and kept_by_design("Secret Clearance Required: No Top Secret Clearance Required: Yes"),
           "clearance: a field answered 'No current clearance required' is not a requirement; a next label 'No ... Required:' is")
     check(js.clearance_verdict("Secret Clearance Required: None at hire") == "OBTAINABLE"
           and js.clearance_verdict("TS/SCI Required: No initially") == "OBTAINABLE"

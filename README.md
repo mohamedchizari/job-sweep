@@ -80,6 +80,7 @@ flag.
 |---|---|
 | `job_scanner.py` | The sweep: one adapter per ATS, the gates, `roles.csv`, the WALLS list, `--delta`, `--discover`, `--probe`. |
 | `sweep_settings.py` | Loads and checks the settings file. |
+| `held_clearance.py` | Decides `ACTIVE REQUIRED` on its own, keeping by default: a posting is dropped only on plain held wording (active, current, must hold, "cleared candidates only", "we cannot sponsor a clearance", a level required with no offer to obtain it). See docs/DESIGN.md, section 5. |
 | `clearance_rule.py` | The clearance verdict's first reader, one pure function: labelled fields ("Must Currently Possess: None ... Must Be Able to Obtain: Secret" is `OBTAINABLE`), a required interim clearance (`ACTIVE REQUIRED`), "clearable" (`OBTAINABLE`); everything else goes to the regex reading in `job_scanner.py`. |
 | `posting_census.py` | Second pass. Fetches each kept posting, saves its text, and quotes the clearance line, the pay line and the years-of-experience lines. |
 | `weekly_run.py` | Canary, sweep, and a delta against the previous run: walls, new roles, closed roles. |
@@ -128,7 +129,9 @@ own pages make.
 
 ## Limits
 
-- The gates read text with patterns. They miss phrasings they were not written for. The sweep's
+- The gates read text with patterns. They miss phrasings they were not written for. The clearance
+  verdict keeps a posting unless its wording plainly asks for a clearance already held, so some postings
+  that need one are kept (a bare "TS/SCI clearance" in a list, for one). The sweep's
   clearance verdict reads "Top Secret clearance required" as `ACTIVE REQUIRED`, "Ability to obtain
   a Secret clearance is required" or "Secret clearance required within 90 days of hire" as
   `OBTAINABLE`, and "No active clearance is required" or "A Top Secret clearance is not required" as
