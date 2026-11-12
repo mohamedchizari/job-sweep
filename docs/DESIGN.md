@@ -123,21 +123,31 @@ an unread row passes as "no band", and on a large Workday tenant that is every r
 ## 5. Clearance wording
 
 **Keep by default (12 Nov 2026).** `ACTIVE REQUIRED` now comes from `held_clearance.py` alone, and only on
-plain wording: a decisive sentence ("cleared candidates only", "candidates without a clearance will not be
-considered", "must already hold", "we cannot sponsor a clearance", "Must Currently Possess: Secret"); a level next
-to held wording (active, current, existing, must have / hold / possess, at the time of application, prior to
-start, on day one); or a level next to "required" or in a "Clearance Required: <level>" field, or listed under a
-"Required Qualifications" heading, unless the page offers to obtain or sponsor that clearance. None of these fires
-in a sentence or list item that also speaks of obtaining, eligibility, sponsoring, preference, "a plus", the
-future, "not required", a field answered No, or a question, nor under a "Preferred / Nice to have / Bonus"
-heading. Everything else is kept: when the regex reading below or `clearance_rule.py` would say `ACTIVE
-REQUIRED`, the verdict is `OBTAINABLE`. Missing a held clearance shows a job that can be skipped; reading one
-where there is none hides a job that could be applied to, so the second error is the one the reader avoids.
-Known misses, kept on purpose: a bare level ("- TS/SCI clearance", "TS/SCI with full-scope polygraph", a title
-"Analyst - TS/SCI w/ Poly"), a required interim clearance, and fields answered "No <word>" whose meaning turns
-on the word ("No interims", "No lower than Secret", "No CI polygraph"). Scored 12 Nov 2026 on 1,253 labelled lines
-in seven sets and a blind set of 157 written before the reader: 0 roles wrongly dropped (the published reader:
-18 on the blind set), 9 of 60 held requirements kept on the blind set.
+plain wording: a decisive sentence that names a clearance ("cleared candidates only", "candidates without an active
+clearance will not be considered", "must already hold a TS/SCI", "we cannot sponsor a clearance", "Must Currently
+Possess: Secret", "interim clearances will not be accepted"); a level next to held wording (active, current,
+existing, must have / hold / possess, at the time of application, prior to start, on day one); or a level that is
+required (next to "required", in a "Clearance Required: <level>" field, or listed under a "Required
+Qualifications" heading), unless the page offers to obtain or sponsor that clearance, accepts an interim one, or
+reads as a federal posting (the agency processes the clearance). None of these fires in a sentence or list item
+that also speaks of obtaining, eligibility, sponsoring, taking a polygraph, preference ("a plus", "valued", "would
+set you apart"), the future, a prior or lapsed clearance, "not required", a field answered No, or a question; a
+short qualifier split off by a dash or "but" ("Active Secret - Highly Preferred", "great, but not required") stays
+with its clause; nothing under a "Preferred / Nice to have / What will set you apart / Qualifications We Prefer"
+heading fires. Everything else is kept: when the regex reading below or `clearance_rule.py` would say `ACTIVE
+REQUIRED`, the verdict is `OBTAINABLE`. Missing a held clearance shows a job that can be skipped; reading one where
+there is none hides a job that could be applied to, so the second error is the one the reader avoids.
+
+Known misses, kept on purpose: a bare level ("- TS/SCI clearance", "Security clearance: Secret", "TS/SCI with
+full-scope polygraph", a title "Analyst - TS/SCI w/ Poly"); a required interim clearance; a held clearance in a
+sentence that also says "adjudicated within the past 5 years" or "reinvestigation"; and fields answered "No
+<word>" whose meaning turns on the word ("No interims", "No lower than Secret", "No CI polygraph").
+
+Scored 12 Nov 2026 (roles wrongly dropped / held requirements kept): a blind set of 157 lines written before the
+reader and never read by its author, 0 / 16 (the published reader: 18 / 15); seven labelled sets, 1,253 lines, 0
+wrongly dropped in each. A fresh review's 359 realistic probes found 151 wrongly dropped in the first version of
+this reader; every one is fixed, but those probes are now seen and prove only that. Adversarial texts up to 1.1 MB
+read in under 2.5 s.
 
 The text below describes the regex reading, which still decides `OBTAINABLE` against `NONE STATED`.
 
