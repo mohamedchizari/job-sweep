@@ -865,7 +865,11 @@ def workday(spec, sess, lane=None, cap=400, **_):
     postings to one query: when the first page reports a total of 2,000 or more and no page of the
     list failed, the query is asked again once per value of one facet (_workday_split), and the note
     gives the postings then held beside that facet's count."""
-    tenant, shard, site = spec.split("|")
+    # An optional fourth part is a JSON object of applied facets, e.g. a country filter for a worldwide
+    # tenant whose unfiltered list hits the 2,000 cap and whose split would take too long.
+    parts = spec.split("|", 3)
+    tenant, shard, site = parts[:3]
+    base = json.loads(parts[3]) if len(parts) > 3 and parts[3].strip() else {}
     url = f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
     # A company map may list a site name in lower case while the tenant's real site is cased
     # (Careers_Site), and the lower-case name then answers non-JSON. One probe of the title-cased
@@ -875,11 +879,11 @@ def workday(spec, sess, lane=None, cap=400, **_):
     def is_json(resp):
         try: resp.json(); return True
         except ValueError: return False
-    first = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""},
+    first = sess.post(url, json={"appliedFacets": base, "limit": 20, "offset": 0, "searchText": ""},
                       headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
     if (first.status_code != 200 or not is_json(first)) and alt != site:
         url2 = url.replace(f"/{site}/jobs", f"/{alt}/jobs")
-        second = sess.post(url2, json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""},
+        second = sess.post(url2, json={"appliedFacets": base, "limit": 20, "offset": 0, "searchText": ""},
                            headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
         if second.status_code == 200 and is_json(second):
             url, site, probe_note = url2, alt, f" (site {spec.split('|')[2]!r} failed; {alt!r} answered)"
@@ -897,7 +901,7 @@ def workday(spec, sess, lane=None, cap=400, **_):
         for attempt in range(1 + WD_RETRIES):  # a page that fails in passing is asked again
             if attempt: time.sleep(PAUSE)
             try:
-                r = sess.post(url, json={"appliedFacets": {}, "limit": 20, "offset": offset,
+                r = sess.post(url, json={"appliedFacets": base, "limit": 20, "offset": offset,
                                          "searchText": ""},
                               headers={**UA, "Content-Type": "application/json"}, timeout=TIMEOUT)
                 if r.status_code != 200:
@@ -940,7 +944,7 @@ def workday(spec, sess, lane=None, cap=400, **_):
     held = len(rows)
     if _wd_capped(total) and not stopped:
         seen = {r_["_path"] for r_ in rows}
-        extra, split = _workday_split(url, sess, facets, seen)
+        extra, split = _workday_split(url, sess, facets, seen, dict(base) or None)  # slices keep the spec's facets
         rows += [_wd_row(p, tenant, shard, site) for p in extra]
         held = len(seen)
     n = 0
@@ -1308,6 +1312,20 @@ def successfactors_rss(host, sess, **_):
         row["unread"] = "YES"
     return rows, f"successfactors-rss {host}: {len(rows)} items in /sitemal.xml, {n} lane rows read" + failed_reads(rows)
 
+def _sitemap_slug_row(u):
+    """Row from a sitemap URL. Two shapes: .../<title-slug>/<id>/ (title from the segment before the id) and
+    .../jobs/<title-and-place>---<state>---<year>-<id>-jobs (seen on some boards: title and city run together
+    before the first '---'; the id comes after the year). The page's JSON-LD fills title, place and text for lane rows."""
+    parts = u.rstrip("/").split("/")
+    m = re.match(r"(.+?)---[a-z-]+---\d{4}-(\d+)-jobs$", parts[-1]) if parts else None
+    if m:
+        return dict(req=m.group(2), title=m.group(1).replace("-", " ").title(),
+                    location="", text="", url=u, posted="", unread="YES")
+    return dict(req=(re.findall(r"/(\d{5,})/?$", u) or [""])[0],
+                title=parts[-2].replace("-", " ").title() if len(u.split("/")) > 4 else u,
+                location="", text="", url=u, posted="", unread="YES")
+
+
 def sitemap(url, sess, cap=400, lane=None, **_):
     """A jobs sitemap whose URLs end .../<title-slug>/<id>/ : the title is read from the slug.
     Sitemap indexes and .gz files are not followed. A sitemap row has no location and no text, so
@@ -1316,10 +1334,7 @@ def sitemap(url, sess, cap=400, lane=None, **_):
     r = sess.get(url, headers=UA, timeout=TIMEOUT)
     if r.status_code != 200: return [], f"sitemap {url}: HTTP {r.status_code}"
     locs = re.findall(r"<loc>([^<]+)</loc>", r.text)
-    rows = [dict(req=(re.findall(r"/(\d{5,})/?$", u) or [""])[0],
-                 title=u.rstrip("/").split("/")[-2].replace("-", " ").title()
-                       if len(u.split("/")) > 4 else u,
-                 location="", text="", url=u, posted="", unread="YES") for u in locs]
+    rows = [_sitemap_slug_row(u) for u in locs]
     n = in_lane = 0
     if lane:
         for row in rows:
@@ -1332,13 +1347,92 @@ def sitemap(url, sess, cap=400, lane=None, **_):
                   + ("" if lane else " (none: pass --lane, or no row can pass the place gate)") + failed_reads(rows)
                   + (f"  <-- CAPPED at {cap} of {in_lane} lane rows. Use --cap 0." if cap and in_lane > cap else ""))
 
+def oracle(spec, sess, lane=None, cap=400, **_):
+    """Oracle Recruiting Cloud, Candidate Experience (public, no sign-in). spec = 'host|siteNumber',
+    e.g. 'careers.example.com|CX_1' (host from the careers page, siteNumber from its
+    /hcmUI/CandidateExperience/en/sites/<site> link). List: GET {host}/hcmRestApi/resources/latest/
+    recruitingCEJobRequisitions?expand=requisitionList.secondaryLocations&finder=findReqs;siteNumber=..,
+    limit=..,offset=..; the rows sit under items[0].requisitionList only when that expand is given, and
+    items[0].TotalJobsCount is the total. Lane rows get recruitingCEJobRequisitionDetails (finder ById),
+    whose description, qualifications and responsibilities carry the clearance text; the pay line is a
+    flex field (a prompt such as a target salary range; some postings give only "Negotiable")."""
+    host, _, site = spec.partition("|")
+    base = f"https://{host}/hcmRestApi/resources/latest"
+    hdr = {**UA, "Accept": "application/json"}
+    rows, off, total, stop, lim, seen_ids = [], 0, None, "", 100, set()
+    while True:
+        url = (f"{base}/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations"
+               f"&finder=findReqs;siteNumber={site},limit={lim},offset={off},sortBy=POSTING_DATES_DESC")
+        try:
+            r = sess.get(url, headers=hdr, timeout=TIMEOUT)
+            if r.status_code == 200: items = (r.json() or {}).get("items") or [{}]
+        except Exception as e:
+            if off == 0: return rows, f"oracle {spec!r}: {type(e).__name__} on the first page"
+            stop = f"  <-- STOPPED: {type(e).__name__} at offset={off}; the list may be longer"; break
+        if r.status_code != 200:
+            if off == 0: return rows, f"oracle {spec!r}: HTTP {r.status_code} on the first page"
+            stop = f"  <-- STOPPED: HTTP {r.status_code} at offset={off}; the list may be longer"; break
+        it = items[0] or {}
+        if total is None: total = it.get("TotalJobsCount")
+        reqs = it.get("requisitionList")
+        if reqs is None:
+            stop = f"  <-- STOPPED: no requisitionList at offset={off} (the expand was refused?)"; break
+        if not reqs: break
+        new = 0
+        for j in reqs:
+            jid = str(j.get("Id", ""))
+            if jid and jid in seen_ids: continue   # a posting added mid-run shifts the pages by one
+            seen_ids.add(jid); new += 1
+            locs = [j.get("PrimaryLocation") or ""] + [x.get("Name") or "" for x in j.get("secondaryLocations") or []]
+            rows.append(dict(req=str(j.get("Id", "")), title=j.get("Title", ""),
+                             location="; ".join(dict.fromkeys(x for x in locs if x)),
+                             text=strip_html(" ".join(str(j.get(k) or "") for k in
+                                  ("ShortDescriptionStr", "ExternalResponsibilitiesStr", "ExternalQualificationsStr")))[:60000],
+                             url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{j.get('Id', '')}",
+                             posted=str(j.get("PostedDate") or ""), unread="YES"))
+        off += len(reqs)
+        if not new: stop = f"  <-- STOPPED: page at offset={off - len(reqs)} repeated earlier rows"; break
+        if total is not None and off >= total: break
+        if off >= 20000: stop = "  <-- STOPPED at 20,000 rows"; break
+        time.sleep(PAUSE)
+    n = 0
+    for row in rows:
+        if not lane or not lane.search(row["title"]) or (cap and n >= cap): continue
+        try:
+            dr = sess.get(f'{base}/recruitingCEJobRequisitionDetails?expand=all&onlyData=true'
+                          f'&finder=ById;Id=%22{row["req"]}%22,siteNumber={site}', headers=hdr, timeout=TIMEOUT)
+            row["_detail"] = "ok" if dr.status_code == 200 else f"HTTP {dr.status_code}"
+            if dr.status_code == 200:
+                d = ((dr.json() or {}).get("items") or [{}])[0] or {}
+                row["text"] = strip_html(" ".join(str(d.get(k) or "") for k in
+                    ("ExternalDescriptionStr", "ExternalResponsibilitiesStr", "ExternalQualificationsStr",
+                     "CorporateDescriptionStr")))[:60000]
+                flex = "; ".join((f'{x.get("Prompt")}: ' if x.get("Prompt") else "") + f'{x.get("Value")}' for x in d.get("requisitionFlexFields") or []
+                                 if x.get("Value"))
+                if flex: row["text"] = (flex + ". " + row["text"])[:60000]   # the pay line often sits here
+                locs = [d.get("PrimaryLocation") or ""] + [x.get("Name") or "" for x in d.get("secondaryLocations") or []]
+                row["location"] = "; ".join(dict.fromkeys(x for x in locs if x)) or row["location"]
+                row["posted"] = str(d.get("ExternalPostedStartDate") or row["posted"])
+                row["unread"] = ""; n += 1
+        except Exception as e:
+            row["_detail"] = type(e).__name__
+        time.sleep(PAUSE)
+    if not stop and total is not None and len(rows) < total:
+        stop = "  <-- STOPPED short of TotalJobsCount"
+    note = (f"oracle {spec!r}: {len(rows)} of total {'not reported' if total is None else total}; "
+            + (f"{n} lane rows read from the detail endpoint" + (f" (capped at {cap})" if cap and n >= cap else "")
+               if lane else "no --lane, so no detail was read and no row can pass")
+            + failed_reads(rows) + stop)
+    return rows, note
+
+
 # kind -> the parts of its spec when the spec is written a|b|c, else None.
 KINDS = {"greenhouse": None, "lever": None, "ashby": None, "icims": None, "sitemap": None, "avature": None,
          "phenom_widget": None, "successfactors_rss": None,
-         "amazon": None, "workday": ("tenant", "shard", "site"), "eightfold": ("host", "domain.com")}
+         "amazon": None, "workday": ("tenant", "shard", "site"), "oracle": ("host", "siteNumber"), "eightfold": ("host", "domain.com")}
 ADAPTERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "icims": icims, "sitemap": sitemap,
             "avature": avature, "phenom_widget": phenom_widget, "successfactors_rss": successfactors_rss,
-            "workday": workday, "eightfold": eightfold, "amazon": amazon}
+            "workday": workday, "eightfold": eightfold, "amazon": amazon, "oracle": oracle}
 
 
 ATS_FINGERPRINTS = [
