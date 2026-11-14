@@ -120,7 +120,16 @@ def _targets(value, key, known_ats, required):
                 raise SettingsError(f"{key}.{name}: unknown ats {kind!r}; known: "
                                     f"{', '.join(sorted(known_ats))}, {', '.join(NOT_FETCHED)}")
             parts = known_ats.get(kind) if isinstance(known_ats, dict) else None
-            if parts and (len(spec.split("|")) != len(parts) or not all(p.strip() for p in spec.split("|"))):
+            sp = spec.split("|", len(parts)) if parts else []
+            extra = sp[len(parts)] if parts and len(sp) > len(parts) else None
+            if extra is not None and kind == "workday":
+                # An optional fourth part: a JSON object of applied facets, e.g. a country filter.
+                try: ok = isinstance(json.loads(extra), dict)
+                except ValueError: ok = False
+                if not ok:
+                    raise SettingsError(f"{key}.{name}: a workday spec's optional fourth part must be a JSON object of applied facets; got {extra!r}")
+                sp = sp[:len(parts)]
+            if parts and (len(sp) != len(parts) or not all(p.strip() for p in sp)):
                 raise SettingsError(f"{key}.{name}: a {kind} spec is {'|'.join(parts)}; got {spec!r}")
         out[name] = (kind, spec)
     return out
