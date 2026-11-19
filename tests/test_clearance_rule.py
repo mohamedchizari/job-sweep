@@ -72,6 +72,8 @@ CASES = [
     ("Must have or obtain a driver's license (needed for site visits and medical clearance before travel).", N, "have or obtain, a medical clearance"),
     ("Clearance Level Must Currently Possess: SecretClearance Level Must Be Able to Obtain: Top Secret", A, "possess a level that runs into the next label"),
     ("Must Currently Possess: TSA PreCheck", N, "possess, a word that starts with TS"),
+    ("Must Currently Possess: Secretclearance", A, "possess, a level run into the word clearance"),
+    ("Must have or obtain the certifications needed to support Top Secret programs.", N, "have or obtain, a certification for Top Secret work"),
     ("Candidates Must Currently Possess: TSCM certification", N, "possess, another word that starts with TS"),
     # Requisition fields: the "minimum" field is held at hire; "have or obtain" is the obtainable one
     ("This requisition requires the candidate to have a minimum of the following clearance(s): Top Secret/SCI/Polygraph This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret/SCI/Polygraph", A, "requisition minimum TS/SCI/Poly"),
@@ -167,6 +169,17 @@ def main():
     req_page += [x + " " + head + "Secret" for x in ("Must be able to acquire a Secret clearance.", "Must be able to gain a Secret clearance within 90 days.",
                  "Selected candidates will undergo a Secret background investigation after the offer.",
                  "We will submit your Secret clearance paperwork after hire.", "The clearance is completed post-hire.")]
+    req_page += [head + "Secret. " + x for x in ("We will help you get cleared.", "A Secret clearance is required within 90 days of start.",
+                 "The selected candidate will be put in for a Secret clearance.", "If you do not have a clearance, we can get you one.",
+                 "Candidates with a lapsed clearance are encouraged to apply.", "Clearance can be pending at start.",
+                 "Reinstatement of a previously held clearance is acceptable.", "We will apply for your Secret clearance on your behalf.",
+                 "Active Secret clearance preferred; ability to obtain required.",
+                 "This role requires the hired candidate to obtain a Secret clearance within 90 days of start.")]
+    req_page += [x + " " + head + "Secret" + comp for x in ("Secret clearance required within six months of hire.",
+                 "Must have an active Secret clearance or the ability to obtain one.", "Active Secret clearance or ability to obtain.",
+                 "Candidates must hold a current Secret clearance or be able to obtain one.", "Must be clearable.",
+                 "We will sponsor the selected candidate.")]
+    req_page += [head.rstrip() + "\nPreferred Qualifications\nActive TS/SCI clearance"]
     bad = [k[-50:] for k in req_page if js.clearance_verdict(k) == A]
     check(not bad, "requisition minimum: an offer elsewhere on the page, or a negation, keeps it "
           + (repr(bad) if bad else "(%d phrases)" % len(req_page)))

@@ -70,7 +70,7 @@ CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(curren
                         r"top secret|secret|polygraph)\b"
                         r"|\b(ts/sci|top secret)\b[^.]{0,50}?\bpolygraph\b"
                         r"|\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b", re.I)
-CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|have or obtain(?=[^.;<>\n]{0,100}?\b(?:clearances?\s*(?:\(s\))?\s*:|security\s+clearances?\b|top\s+secret\b|secret\s+clearance|ts\s*/\s*sci\b))|"
+CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|have or obtain(?=[^.;<>\n]{0,100}?\b(?:clearances?\s*(?:\(s\))?\s*:|security\s+clearances?\b|top\s+secret\s+(?:clearance|/\s*sci)|secret\s+clearance|ts\s*/\s*sci\b))|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen|(?:clearance|ts/sci|secret)\s+eligib\w*|(?:clearance|ts/sci|secret|poly(?:graph)?)\s+(?:is\s+)?(?:required|needed)(?:\s+(?:for|in)\s+(?:this|the)\s+(?:position|role|job))?\s*[:?]\s*(?:no|none|not)\s*-?\s*"
                         r"(?-i:at\s+(?:hire|start)|initially|until)\b)", re.I)
@@ -858,7 +858,7 @@ def _wd_cap_note(split, n, total=2000):
 
 
 def workday(spec, sess, lane=None, cap=400, **_):
-    """POST only: GET returns 400, and so does a limit above 20 .
+    """POST only: GET returns 400, and so does a limit above 20.
     spec = 'tenant|wd5|SiteName'. The list carries no description, so no band and no clearance: with --lane,
     lane-titled rows get GET {cxs}/{site}{externalPath} -> jobPostingInfo (description, location,
     additionalLocations). A row whose detail was not read is marked `unread` and never passes
@@ -1025,7 +1025,7 @@ def _avature_detail_place(row, page):
     places = [strip_html(p) for p in AV_PARAGRAPH.findall(_div_block(page, m.end()))] if m else []
     if not any(places): places = [strip_html(v) for v in AV_LOC_FIELD.findall(page)]
     places = [p for p in places if p]
-    if places: row["location"] = "; ".join(places + (["Remote"] if ld == "Remote" else []))
+    if places: row["location"] = "; ".join(places + (["Remote"] if "Remote" in ld.split("; ") else []))
 
 AV_FOLDER_HREF = re.compile(r'href="([^"]{0,1500}?/careers/FolderDetail/[^"]{1,1500})"')
 AV_NUMBER = re.compile(r"/(\d+)/?(?:[?#].*)?$")
@@ -1493,7 +1493,7 @@ def jibe(base, sess, **_):
             if not rid or rid in seen: continue
             seen.add(rid); new += 1
             text = " ".join(strip_html(j.get(k) or "") for k in ("description", "qualifications", "responsibilities"))
-            text = re.sub(r"\bUSD\s*\$", "$", text)    # "USD $70,000.00 - USD $110,000.00 /Yr." is unread by bands()
+            text = re.sub(r"\bUSD\s*\$", "$", text)    # "USD $X - USD $Y /Yr." is unread by bands()
             lo, hi = j.get("salary_min_value") or 0, j.get("salary_max_value") or 0
             if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and 30_000 <= lo <= hi:
                 text += f" ${int(lo)} - ${int(hi)}"      # a structured yearly range, when a site fills it

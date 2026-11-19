@@ -101,7 +101,7 @@ _DECISIVE = re.compile(
     r"\b(?:candidates|applicants|those)\s+(?:without|lacking)\s+(?:an?\s+)?(?:active\s+|current\s+)?(?:[\w/]+\s+){0,3}?"
     r"(?:will\s+not|won't|should\s+not|need\s+not|cannot|can\s*not)\s+(?:be\s+considered|apply)"
     r"|\b(?:awaiting|pending)\s+adjudication\s+need\s+not\s+apply\b"
-    r"|\bmust\s+currently\s+(?:possess|hold)\s*:\s*(?:an?\s+|active\s+|current\s+)*(?:(?:top[\s-]+secret|secret(?!ary))(?-i:(?![a-z]))|tssci\b|ts/sci\b|ts\b)", re.I)
+    r"|\bmust\s+currently\s+(?:possess|hold)\s*:\s*(?:an?\s+|active\s+|current\s+)*(?:(?:top[\s-]+secret|secret(?!ary))(?:(?-i:(?![a-z]))|(?=clearance))|tssci\b|ts/sci\b|ts\b)", re.I)
 # A requisition field some postings carry: "...requires the candidate to have a minimum of the following clearance(s):
 # <level>". It reads as held at hire only in its plain form: a level (with "/SCI", a polygraph or the word "clearance"
 # after it) and nothing else before the end of the unit or the companion field; no "not" just before the field; and
@@ -135,19 +135,22 @@ def _req_minimum(u):
 
 _REQ_OFFER = re.compile(r"\b(?:obt(?:ai|ia)n\w*|attain\w*|acquir\w*|gain\w*|eligib\w*|clearable|sponsor\w*|initiat\w*|process(?:ed|es|ing)?|granted"
                         r"|undergo\w*|submit\w*|investigat\w*|paperwork|post[\s-]?hire|after\s+(?:hire|hiring|the\s+offer|an\s+offer|selection)"
-                        r"|be\s+cleared|get\s+you\s+cleared)\b", re.I)
+                        r"|be\s+cleared|get\s+(?:you\s+)?cleared|get\s+you\s+one|clearable|put\s+(?:you\s+)?in\s+for|on\s+your\s+behalf|reinstat\w*|pending"
+                        r"|within\s+(?:\d+|one|two|three|six|nine|twelve|thirty|sixty|ninety)\s+(?:days?|weeks?|months?|years?)\s+(?:of|from|after)"
+                        r"\s+(?:the\s+)?(?:start|starting|hire|hiring|date\s+of\s+hire|employment|onboarding))\b", re.I)
 _UNCLEARED_OK = re.compile(
     r"\b(?:uncleared|non-?cleared|(?:without|lacking)\s+(?:an?\s+)?(?:active\s+|current\s+)?(?:security\s+)?clearances?"
     r"|(?:hold|have)\s+no\s+(?:security\s+)?clearances?)\b(?:(?!\b(?:not|cannot|won't)\b)[^.;]){0,60}?"
     r"\b(?:considered|welcome\w*|(?:may|can)\s+(?:still\s+)?apply|encouraged|accepted)\b", re.I)
 # "...do not currently hold a clearance are encouraged to apply", "not required at the time of application",
 # "No clearance is needed to start", "If you are not cleared, you can still apply"; but not "... will not be considered"
-_NO_CLR_OK = re.compile(r"\b(?:not|no|without|uncleared|non-?cleared)\b[^.;]{0,60}?\b(?:apply|considered|encouraged|welcome\w*|accepted"
+_NO_CLR_OK = re.compile(r"\b(?:not|no|without|uncleared|non-?cleared|lapsed|expired|inactive|previously\s+held)\b[^.;]{0,60}?\b(?:apply|considered|encouraged|welcome\w*|accepted"
                         r"|to\s+start|at\s+the\s+time\s+of\s+(?:application|applying|hire))\b", re.I)
 _NO_CLR_BAD = re.compile(r"\b(?:will\s+not|won't|cannot|can\s*not|should\s+not|need\s+not|do\s+not|don't)\s+(?:be\s+)?(?:considered|apply|accepted)\b"
                          r"|\bonly\b", re.I)
 _ELIG_BOILER = re.compile(r"\beligibility\s+requirements\b|\bto\s+be\s+eligible\b|\beligible\s+to\s+be\s+considered\b"
                           r"|\bsubject\s+to\s+an?\s+(?:\w+\s+){0,2}investigation\b", re.I)
+_SPONSOR_WHO = re.compile(r"sponsor(?:s|ed|ing)?\s+(?:the\s+|a\s+|an\s+|your\s+)?(?:selected\s+|successful\s+)?(?:candidates?|applicants?|hires?|you\b)", re.I)
 _REQ_NOUN = re.compile(r"\bclear(?:ance|ed)\w*|\bpoly(?:graph)?s?\b|\bbackground\s+investigation", re.I)
 _BARE_LEVEL = re.compile(r"\btop[\s-]+secret\b|\bts\s*/\s*sci\b|\bsecret\b(?!ary)", re.I)    # near an offer word: "undergo a Secret investigation"
 
@@ -157,8 +160,8 @@ def _companion_span(u):
     <level>", through its level; None when u has none."""
     h = _REQ_HIRED.search(u)
     if not h: return None
-    c = u.find(":", h.end(), h.end() + 250)
-    if c < 0: return h.start(), min(len(u), h.end() + 250)
+    c = u.find(":", h.end(), h.end() + 160)
+    if c < 0: return None                 # no field label: plain text, read like any other sentence
     m = re.match(r"\s*(?:" + _REQ_LEVEL + r"|none|not\s+applicable|n/?a)?", u[c + 1:c + 200], re.I)
     return h.start(), c + 1 + m.end()
 
@@ -181,15 +184,17 @@ def _req_offers(us):
         if _CLEAR.search(u) and _NO_CLR_OK.search(u) and not _NO_CLR_BAD.search(u): any_offer = True
         for m in _SPONSOR_CLR.finditer(u):
             if not _NEGATED_SPONSOR.search(u[max(0, m.start() - 30):m.end()]): any_offer = True
-        for m in list(_REQ_OFFER.finditer(u))[:40]:
+        for m in list(_REQ_OFFER.finditer(u))[:200]:
             if _NEGATED_SPONSOR.search(u[max(0, m.start() - 30):m.end()]): continue
             after, before = u[m.end():m.end() + 60], u[max(0, m.start() - 60):m.start()]
-            held_before = _HELD.search(before)          # "Active TS/SCI with the ability to obtain a polygraph": TS/SCI is held
+            hb = list(_HELD.finditer(before))       # "Active TS/SCI with the ability to obtain a polygraph": TS/SCI is held,
+            held_before = bool(hb) and not re.search(r"\bor\b", before[hb[-1].end():], re.I)   # unless "or ... obtain" follows
             lv = ([x.group(0) for x in _LEVEL.finditer(after)] or [x.group(0) for x in _BARE_LEVEL.finditer(after[:40])]
                   or ([] if held_before else [x.group(0) for x in _LEVEL.finditer(before)]))
             if lv: fams |= {_family(x) for x in lv}
             elif _POLY_WORD.search(after): fams.add("P")
             elif _REQ_NOUN.search(after) or (_REQ_NOUN.search(before) and not held_before): fams.add("?")
+            elif re.match(r"clearable", m.group(0), re.I) or (_SPONSOR_WHO.match(u, m.start()) and not _VISA.search(u)): fams.add("?")
     return any_offer, fams
 
 
@@ -421,7 +426,7 @@ def _heading(u):
 def held_required(text, explain=False):
     us, join = [], False
     for u in units(text):     # a field whose level went to the next line or HTML block: "...clearance(s):" / "Secret"
-        if join: us[-1] += " " + u; join = False
+        if join and re.match(r"\s*(?:" + _REQ_LEVEL + r"|none|not\s+applicable|n/?a)(?![\w/])", u, re.I): us[-1] += " " + u; join = False
         else: us.append(u); join = bool(_REQ_MIN_END.search(u))
     why = []
     req_offers = None
@@ -450,7 +455,8 @@ def held_required(text, explain=False):
             cn = _companion_span(nx)
             if cn: nx = nx[:cn[0]] + " " + nx[cn[1]:]
             nx_lv = {_family(x.group(0)) for x in _LEVEL.finditer(nx)}
-            nx_offer = bool(_REQ_OFFER.search(nx)) and not _NEGATED_SPONSOR.search(nx) and (not nx_lv or fam in nx_lv)
+            nx_offer = (bool(_REQ_OFFER.search(nx)) or bool((_CLEAR.search(nx) or nx_lv) and _VETO.search(_masked(nx)))) \
+                and not _NEGATED_SPONSOR.search(nx) and (not nx_lv or fam in nx_lv)
             if not any_offer and not nx_offer and "?" not in fams and fam not in fams:
                 why.append((u, "requisition minimum: " + rq))
                 return (True, why) if explain else True

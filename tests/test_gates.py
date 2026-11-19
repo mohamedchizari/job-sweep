@@ -1333,6 +1333,8 @@ def test_adapters():
     check(row.get("location", "").startswith("Springfield, Example State"), f"avature: a JSON-LD with a country alone does not hide the header places ({row.get('location')!r})")
     t0 = time.time(); js._avature_detail_place({}, "<div " * 40000); js._avature_detail_place({}, '<div class="article__header--locations">' + '<p class="paragraph">x' * 20000)
     check(time.time() - t0 < 3, f"avature: malformed header markup is read in bounded time ({time.time() - t0:.1f} s)")
+    row = {}; js._avature_detail_place(row, '<script type="application/ld+json">{"@type":"JobPosting","jobLocationType":"TELECOMMUTE","jobLocation":{"address":{"addressCountry":"US"}}}</script>' + hdr)
+    check(row.get("location", "").endswith("; Remote"), f"avature: a TELECOMMUTE JSON-LD with a country alone keeps Remote after the header places ({row.get('location')!r})")
     row = {}; js._avature_detail_place(row, "<p>no places here</p>")
     check("location" not in row, "avature: a page that prints no place sets none")
     # ---- sitemap rows: the title slug
@@ -1351,7 +1353,7 @@ def test_adapters():
             pg = int(url.split("page=")[1].split("&")[0]); self.pages.append(pg)
             ids = range((pg - 1) * self.per, min(pg * self.per, self.total))
             jobs = [{"data": {"req_id": f"R{i}", "title": f"Analyst {i}", "full_location": "Boulder, CO",
-                              "description": "<p>Pay: USD $70,000.00 - USD $110,000.00 /Yr.</p>",
+                              "description": "<p>Pay: USD $150,000.00 - USD $180,000.00 /Yr.</p>",
                               "salary_min_value": self.salary[0], "salary_max_value": self.salary[1], "slug": f"r{i}"}} for i in ids]
             return type("R", (), {"status_code": 200, "json": lambda s: {"totalCount": self.count, "jobs": jobs}})()
     jb = JB(); rows, note = js.jibe("careers.example.com", jb)
@@ -1369,9 +1371,9 @@ def test_adapters():
     check(len(rows) == 3 and "of totalCount 3000" in note, f"jibe: a totalCount with a thousands comma is read ({note})")
     class JBnull:
         def get(self, url, **kw):
-            return type("R", (), {"status_code": 200, "json": lambda s: {"totalCount": 2, "jobs": [{"data": None}, {"data": {"req_id": "R1", "title": "x", "posted_date": 20261119}}]}})()
+            return type("R", (), {"status_code": 200, "json": lambda s: {"totalCount": 2, "jobs": [{"data": None}, {"data": {"req_id": "R1", "title": "x", "posted_date": 20260101}}]}})()
     rows, note = js.jibe("careers.example.com", JBnull())
-    check(len(rows) == 1 and rows[0]["posted"] == "20261119", f"jibe: a job with no data is skipped and a numeric date is kept as text ({note})")
+    check(len(rows) == 1 and rows[0]["posted"] == "20260101", f"jibe: a job with no data is skipped and a numeric date is kept as text ({note})")
     rows, note = js.jibe("careers.example.com", JBshort(total=5))
     check(len(rows) == 2 and "STOPPED short of totalCount" in note, f"jibe: a list that ends short of totalCount says so ({note})")
     class AVnothing:
