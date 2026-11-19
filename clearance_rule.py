@@ -3,7 +3,7 @@ candidate must already hold?
 
     clearance_rule(text, base=None) -> "ACTIVE REQUIRED" | "OBTAINABLE" | "NONE STATED"
 
-The rule, for a candidate who is a U.S. citizen, has held a clearance before and holds none now:
+The rule:
 
   ACTIVE REQUIRED  The posting needs a clearance in hand: an active or current Secret, Top Secret, TS/SCI or
                    polygraph; "must currently hold"; or an interim clearance that is required to start.

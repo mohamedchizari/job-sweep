@@ -293,7 +293,7 @@ def test_bands():
 
 
 # ------------------------------------------------------------------ the gates
-# Keep-by-default (held_clearance.py, 12 Nov 2026): these postings do ask for a held clearance, but in wording the
+# Keep-by-default (held_clearance.py): these postings do ask for a held clearance, but in wording the
 # reader does not drop on (a bare level, or a field answered "No <something>" whose meaning flips with the word after
 # it). Keeping one shows a job that can be skipped; dropping a postable one hides it, the costly error. They are
 # checked as KEPT so a later change that starts dropping them is a deliberate choice, not an accident.
@@ -478,8 +478,8 @@ def test_gates():
     check(js.clearance_verdict("Secret Clearance Required: No Exceptions or Waivers") == "ACTIVE REQUIRED"
           and kept_by_design("Active Secret Clearance Required: None lower accepted"),
           "clearance: 'No Exceptions or Waivers' and 'None lower accepted' keep the requirement")
-    check(js.clearance_verdict("Secret Clearance Required: No Exceptions Location: Herndon, VA") == "ACTIVE REQUIRED"
-          and js.clearance_verdict("Top Secret Clearance Required: No Exceptions. Location: Herndon, VA") == "ACTIVE REQUIRED"
+    check(js.clearance_verdict("Secret Clearance Required: No Exceptions Location: Denver, CO") == "ACTIVE REQUIRED"
+          and js.clearance_verdict("Top Secret Clearance Required: No Exceptions. Location: Denver, CO") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: NO EXCEPTIONS Shift: Day") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Secret Clearance Required: No Exceptions/No Waivers") == "ACTIVE REQUIRED"
           and js.clearance_verdict("Top Secret Clearance Required: No exceptions: this is a contract requirement.") == "ACTIVE REQUIRED",
@@ -1209,8 +1209,8 @@ def test_adapters():
     av = AVfolder(prefix="/portal/7/careers", slug="2026-Posting-%d"); rows, note = js.avature("https://careers.example.com/portal/7", av, cap=0)
     check([r["req"] for r in rows] == ["1", "2", "3", "4", "5"], f"avature: the job number is the last part of the address, whatever numbers come before it ({[r['req'] for r in rows]})")
     av = AVfolder(paging=()); rows, note = js.avature("t", av, cap=0)
-    check(rows == [] and len(av.lists) == 1 and note == "avature t: 0 jobs listed, 0 job pages read",
-          f"avature: FolderDetail links on a first page with no folderOffset in it are page furniture, and the board is empty, as before ({note})")
+    check(rows == [] and len(av.lists) == 1 and note.startswith("avature t: 0 jobs listed, 0 job pages read  <-- the first page links no job"),
+          f"avature: FolderDetail links on a first page with no folderOffset in it are page furniture: no job is listed, and the note says to open the board before calling it empty ({note})")
     class AVrecords(AVfolder):
         def get(self, url, **kw):
             r = AVfolder.get(self, url, **kw)
@@ -1309,6 +1309,76 @@ def test_adapters():
     check(rows[0]["location"] == "US; Boulder, CO", f"avature: a JSON-LD city in any place of a list of places keeps the fields out ({rows[0]['location']!r})")
     rows, note = js.avature("t", AVfolder(page=ld('"Boulder, CO"')), cap=0)
     check(rows[0]["location"] == "Boulder, CO", f"avature: so does a jobLocation written as one string with a comma ({rows[0]['location']!r})")
+    hdr = ('<div class="article__header__text__subtitle"><div class="article__header--locations article__header--locations-none" >'
+           ' <div class="fluid-cols fluid-cols--cols2"> <p class="paragraph">Springfield, Example State, United States</p>'
+           ' <p class="paragraph">Shelbyville, Example State, United States</p> </div> </div> </div>')
+    empty_ld = '<script type="application/ld+json">{"@type":"JobPosting","title":"x","jobLocation":{"@type":"Place","address":{"addressLocality":"","addressRegion":null}}}</script>'
+    row = {}; js._avature_detail_place(row, empty_ld + hdr)
+    check(row.get("location") == "Springfield, Example State, United States; Shelbyville, Example State, United States",
+          f"avature: a JobDetail page with an empty JSON-LD address takes every place printed in its header ({row.get('location')!r})")
+    row = {}; js._avature_detail_place(row, '<div class="article__content__view__field__label"> Locations </div> <div class="article__content__view__field__value"> USA-CO-Denver </div>')
+    check(row.get("location") == "USA-CO-Denver", f"avature: with no JSON-LD and no header places, a Locations field is the place ({row.get('location')!r})")
+    row = {}; js._avature_detail_place(row, '<script type="application/ld+json">{"@type":"JobPosting","jobLocation":{"address":{"addressLocality":"Reno"}}}</script>' + hdr)
+    check("location" not in row, "avature: a JobDetail page whose JSON-LD names a place is left to the JSON-LD")
+    row = {}; js._avature_detail_place(row, '<div class="article__header--locations"><p class="paragraph">Denver, CO</p></div>'
+                                            '<div class="article__content"><p class="paragraph">Job text here</p></div></div>')
+    check(row.get("location") == "Denver, CO", f"avature: the header places end where their div closes ({row.get('location')!r})")
+    tele = '<script type="application/ld+json">{"@type":"JobPosting","jobLocationType":"TELECOMMUTE","jobLocation":{"address":{"addressLocality":""}}}</script>'
+    row = {}; js._avature_detail_place(row, tele + hdr)
+    check(row.get("location") == "Springfield, Example State, United States; Shelbyville, Example State, United States; Remote",
+          f"avature: a TELECOMMUTE JSON-LD with no place keeps the header places and adds Remote ({row.get('location')!r})")
+    row = {}; js._avature_detail_place(row, '<div class="article__header__text article__header--locations"><p class="paragraph">Denver, CO</p></div>')
+    check(row.get("location") == "Denver, CO", f"avature: the locations class need not come first in the class list ({row.get('location')!r})")
+    row = {}; js._avature_detail_place(row, '<script type="application/ld+json">{"@type":"JobPosting","jobLocation":{"address":{"addressCountry":"US"}}}</script>' + hdr)
+    check(row.get("location", "").startswith("Springfield, Example State"), f"avature: a JSON-LD with a country alone does not hide the header places ({row.get('location')!r})")
+    t0 = time.time(); js._avature_detail_place({}, "<div " * 40000); js._avature_detail_place({}, '<div class="article__header--locations">' + '<p class="paragraph">x' * 20000)
+    check(time.time() - t0 < 3, f"avature: malformed header markup is read in bounded time ({time.time() - t0:.1f} s)")
+    row = {}; js._avature_detail_place(row, "<p>no places here</p>")
+    check("location" not in row, "avature: a page that prints no place sets none")
+    # ---- sitemap rows: the title slug
+    r = js._sitemap_slug_row("https://careers.example.com/job/springfield/senior-controller/12345/67890123")
+    check(r["title"] == "Senior Controller" and r["req"] == "67890123", f"sitemap: a URL ending in two all-digit segments takes the title before both ({r['title']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/job/springfield/senior-controller/67890123/")
+    check(r["title"] == "Senior Controller" and r["req"] == "67890123", f"sitemap: one id segment, the title before it ({r['title']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/jobs/senior-controller-springfield---co---2026-4455-jobs")
+    check(r["req"] == "4455" and r["title"].startswith("Senior Controller"), f"sitemap: the title---state---year-id-jobs shape ({r['title']!r}, {r['req']!r})")
+    # ---- jibe
+    class JB:
+        def __init__(self, total=3, per=2, salary=(0, 0), count=None):
+            self.total, self.per, self.salary, self.pages = total, per, salary, []
+            self.count = total if count is None else count
+        def get(self, url, **kw):
+            pg = int(url.split("page=")[1].split("&")[0]); self.pages.append(pg)
+            ids = range((pg - 1) * self.per, min(pg * self.per, self.total))
+            jobs = [{"data": {"req_id": f"R{i}", "title": f"Analyst {i}", "full_location": "Boulder, CO",
+                              "description": "<p>Pay: USD $70,000.00 - USD $110,000.00 /Yr.</p>",
+                              "salary_min_value": self.salary[0], "salary_max_value": self.salary[1], "slug": f"r{i}"}} for i in ids]
+            return type("R", (), {"status_code": 200, "json": lambda s: {"totalCount": self.count, "jobs": jobs}})()
+    jb = JB(); rows, note = js.jibe("careers.example.com", jb)
+    check(len(rows) == 3 and jb.pages == [1, 2] and "STOPPED" not in note and rows[0]["url"] == "https://careers.example.com/jobs/r0",
+          f"jibe: pages until totalCount, a URL from the slug ({note})")
+    check(js.bands(rows[0]["text"]), f"jibe: a 'USD $X - USD $Y' band in the description is read ({rows[0]['text'][-40:]!r})")
+    class JBshort(JB):
+        def get(self, url, **kw):
+            r = JB.get(self, url, **kw)
+            if self.pages[-1] > 1: r.json = lambda: {"totalCount": self.total, "jobs": []}
+            return r
+    rows, note = js.jibe("careers.example.com", JB(count="3"))
+    check(len(rows) == 3 and "of totalCount 3" in note, f"jibe: a totalCount sent as text is read as a number ({note})")
+    rows, note = js.jibe("careers.example.com", JB(count="3,000", total=3))
+    check(len(rows) == 3 and "of totalCount 3000" in note, f"jibe: a totalCount with a thousands comma is read ({note})")
+    class JBnull:
+        def get(self, url, **kw):
+            return type("R", (), {"status_code": 200, "json": lambda s: {"totalCount": 2, "jobs": [{"data": None}, {"data": {"req_id": "R1", "title": "x", "posted_date": 20261119}}]}})()
+    rows, note = js.jibe("careers.example.com", JBnull())
+    check(len(rows) == 1 and rows[0]["posted"] == "20261119", f"jibe: a job with no data is skipped and a numeric date is kept as text ({note})")
+    rows, note = js.jibe("careers.example.com", JBshort(total=5))
+    check(len(rows) == 2 and "STOPPED short of totalCount" in note, f"jibe: a list that ends short of totalCount says so ({note})")
+    class AVnothing:
+        def get(self, url, **kw):
+            return type("R", (), {"status_code": 200, "text": "<html><p>Search jobs</p></html>"})()
+    rows, note = js.avature("t", AVnothing(), cap=0)
+    check(rows == [] and "links no job" in note, f"avature: a first page that links no job says so in the note, not only 0 ({note!r})")
     class AVrefused(AVfolder):
         def get(self, url, **kw):
             r = AVfolder.get(self, url, **kw)

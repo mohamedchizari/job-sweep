@@ -39,8 +39,8 @@ JUNIOR_TITLES = ["intern", "internship", "junior", r"jr\.?", "entry[- ]level", "
 
 # The default headers of the scanner and the census. The User-Agent names the tool. The Accept
 # header matters: iCIMS serves a job page, with its JSON-LD, to this Accept header, and a wrapper
-# page with no posting in it to a request that sends none or asks for text/html alone (measured
-# 3 Oct 2026). Some calls send an Accept of their own. Four of those carry no JSON type: the HTML
+# page with no posting in it to a request that sends none or asks for text/html alone.
+# Some calls send an Accept of their own. Four of those carry no JSON type: the HTML
 # pages read by --discover and by the Phenom route, the Phenom search call, and the SuccessFactors feed.
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) job_scanner/2.0"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json, text/html;q=0.9,*/*;q=0.8"}

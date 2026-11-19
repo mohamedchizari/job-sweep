@@ -213,7 +213,7 @@ whatever follows. A bare No or None is an answer of No unless what follows plain
 requirement. A wrong `ACTIVE REQUIRED` drops a posting, so the rule leans toward the answer of No.
 Directly after the No, or after a hyphen with no space ("No-exceptions policy"), these keep the
 requirement: "exceptions" or "waivers" in any case, whatever follows ("No exceptions", "No
-Exceptions Location: Herndon, VA", "NO EXCEPTIONS Shift: Day"); exemptions, substitutes or
+Exceptions Location: Denver, CO", "NO EXCEPTIONS Shift: Day"); exemptions, substitutes or
 substitutions, equivalent(s), alternatives (plural), compromises, deviations or interim(s), in
 lower case unless "or" follows ("No interim clearances", but not "No equivalent or higher
 clearance is needed"), or in any case when one of them, or a list of them joined by commas, "or",

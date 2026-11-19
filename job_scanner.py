@@ -15,6 +15,7 @@ the posting itself publishes: the pay band, the location and the clearance wordi
   Eightfold   /api/pcsx/search, with the employer's registered domain; the description is on a
               detail endpoint.
   Phenom      the site's own search call, POST /widgets.
+  Jibe        iCIMS Attract career sites: GET /api/jobs?page=N&limit=100, with totalCount.
   Avature     HTML only, but enumerable: /careers/SearchJobs/?jobOffset=N (or ?folderOffset=N)
   JSON-LD     one extractor for any site that emits schema.org JobPosting.
   Liveness    the LIST endpoint is truth. A detail page that still renders is NOT evidence a
@@ -69,7 +70,7 @@ CLR_ACTIVE = re.compile(r"\b(active|current(ly)?\s+(hold|possess)|must\s+(curren
                         r"top secret|secret|polygraph)\b"
                         r"|\b(ts/sci|top secret)\b[^.]{0,50}?\bpolygraph\b"
                         r"|\bcurrent\s+(?:ts/sci|top secret|secret|(?:security\s+)?clearance)\b", re.I)
-CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|"
+CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtain|have or obtain(?=[^.;<>\n]{0,100}?\b(?:clearances?\s*(?:\(s\))?\s*:|security\s+clearances?\b|top\s+secret\b|secret\s+clearance|ts\s*/\s*sci\b))|"
                         r"obtain and maintain|public trust|suitability|clearance[^.]{0,20}"
                         r"preferred|u\.?s\.?\s+citizen|(?:clearance|ts/sci|secret)\s+eligib\w*|(?:clearance|ts/sci|secret|poly(?:graph)?)\s+(?:is\s+)?(?:required|needed)(?:\s+(?:for|in)\s+(?:this|the)\s+(?:position|role|job))?\s*[:?]\s*(?:no|none|not)\s*-?\s*"
                         r"(?-i:at\s+(?:hire|start)|initially|until)\b)", re.I)
@@ -84,7 +85,7 @@ CLR_OBTAIN = re.compile(r"\b(ability to obtain|able to obtain|eligib\w+ to obtai
 # currently", "Not applicable", "Not required" or "Not needed" is not a requirement, whatever follows. A
 # bare "No" or "None" is an answer of No unless what follows plainly keeps the requirement. A wrong ACTIVE
 # drops a posting, so the rule leans toward No. "Exceptions" and "waivers" keep it in any case, before
-# anything ("No Exceptions Location: Herndon, VA"). "Interim", "substitutions" and their like keep it in
+# anything ("No Exceptions Location: Denver, CO"). "Interim", "substitutions" and their like keep it in
 # lower case unless "or" follows, or in any case at punctuation or the end ("No Substitutions or
 # Deviations"). A few lowercase phrases keep it ("no less than Secret", "No polygraph needed", "No
 # sponsorship available", "No foreign nationals", "no other certifications needed"), and so does "No CI
@@ -857,7 +858,7 @@ def _wd_cap_note(split, n, total=2000):
 
 
 def workday(spec, sess, lane=None, cap=400, **_):
-    """POST only: GET returns 400, and so does a limit above 20 (both measured on one tenant, 3 Oct 2026).
+    """POST only: GET returns 400, and so does a limit above 20 .
     spec = 'tenant|wd5|SiteName'. The list carries no description, so no band and no clearance: with --lane,
     lane-titled rows get GET {cxs}/{site}{externalPath} -> jobPostingInfo (description, location,
     additionalLocations). A row whose detail was not read is marked `unread` and never passes
@@ -998,6 +999,34 @@ def _avature_place(row, page):
         row["location"] = ", ".join(got[k] for k in ("City", "State", "Country") if got.get(k))
         if str(jp.get("jobLocationType", "")).upper() == "TELECOMMUTE": row["location"] += "; Remote"
 
+AV_HEADER_OPEN = re.compile(r'<div\b[^<>]{0,300}?class="[^"<>]{0,200}?\barticle__header--locations\b[^"<>]{0,200}"[^<>]{0,300}>')
+
+AV_COUNTRY_ONLY = re.compile(r"[A-Z]{2,3}|United States(?: of America)?|USA", re.I)    # a country alone is not a place
+
+def _div_block(page, start, limit=400):
+    """The inside of the <div> whose opening tag ends at start: up to the </div> that closes it (nested divs counted)."""
+    depth = 1
+    for n, t in enumerate(re.finditer(r"<(/?)div\b", page[start:start + 200_000])):
+        depth += -1 if t.group(1) else 1
+        if depth == 0: return page[start:start + t.start()]
+        if n >= limit: break
+    return ""
+AV_PARAGRAPH = re.compile(r'<p class="paragraph">(.{0,2000}?)</p>', re.S)
+AV_LOC_FIELD = re.compile(r'field__label">\s*Locations?\s*</div>\s*<div class="[^"]*field__value">(.*?)</div>', re.S)
+
+def _avature_detail_place(row, page):
+    """A JobDetail page whose JSON-LD names no place: its JSON-LD address can be all empty strings (with or
+    without TELECOMMUTE, which adds "Remote" after the places), or the page has no JSON-LD. Such a page prints its places in the header, one <p class="paragraph"> each inside
+    the "article__header--locations" block (every place of a job that is open in several), or as a
+    "Location" or "Locations" field. These, joined with "; ", are the row's location."""
+    ld = ld_location(jsonld_jobposting(page) or {})
+    if [x for x in ld.split("; ") if x and x != "Remote" and not AV_COUNTRY_ONLY.fullmatch(x)]: return     # JSON-LD names a place
+    m = AV_HEADER_OPEN.search(page)
+    places = [strip_html(p) for p in AV_PARAGRAPH.findall(_div_block(page, m.end()))] if m else []
+    if not any(places): places = [strip_html(v) for v in AV_LOC_FIELD.findall(page)]
+    places = [p for p in places if p]
+    if places: row["location"] = "; ".join(places + (["Remote"] if ld == "Remote" else []))
+
 AV_FOLDER_HREF = re.compile(r'href="([^"]{0,1500}?/careers/FolderDetail/[^"]{1,1500})"')
 AV_NUMBER = re.compile(r"/(\d+)/?(?:[?#].*)?$")
 AV_FOLDER_PAGING = re.compile(r"folder(?:Offset|RecordsPerPage)=")
@@ -1098,7 +1127,7 @@ def avature(co, sess, cap=400, lane=None, **_):
             if lane and not lane.search(row["title"]):
                 row["unread"] = "YES"   # no detail fetch outside the lane: a large tenant has more than a thousand
             else:
-                enrich_from_page(row, sess, _avature_place if folder else None); time.sleep(PAUSE)
+                enrich_from_page(row, sess, _avature_place if folder else _avature_detail_place); time.sleep(PAUSE)
             rows.append(row)
         off += step; pages += 1
     n = sum(1 for r in rows if r.get("_detail") == "ok")
@@ -1107,6 +1136,8 @@ def avature(co, sess, cap=400, lane=None, **_):
         stop = f"  <-- STOPPED at {'--cap ' + str(cap) if cap and off >= cap else 'the 200-page bound'}; the list may be longer"
     elif counted is not None and counted != len(rows):
         stop = f"  <-- the first page says {counted} results: jobs were missed, or links that are not jobs were read"
+    elif not rows:   # a 200 page that links no job is not proof of an empty board
+        stop = "  <-- the first page links no job: a client check, a moved board or an empty one; open it in a browser before calling it empty"
     return rows, (f"avature {co}: {len(rows)} jobs listed" + (" (FolderDetail links)" if folder else "") + f", {n} job pages read"
                   + (" (lane rows only)" if lane else "") + failed_reads(rows) + stop)
 
@@ -1313,7 +1344,9 @@ def successfactors_rss(host, sess, **_):
     return rows, f"successfactors-rss {host}: {len(rows)} items in /sitemal.xml, {n} lane rows read" + failed_reads(rows)
 
 def _sitemap_slug_row(u):
-    """Row from a sitemap URL. Two shapes: .../<title-slug>/<id>/ (title from the segment before the id) and
+    """Row from a sitemap URL. Three shapes: .../<title-slug>/<id>/ (title from the segment before the id);
+    .../<title-slug>/<company-id>/<job-id> (a URL that ends in two or more all-digit segments: the title is the
+    last segment that is not all digits); and
     .../jobs/<title-and-place>---<state>---<year>-<id>-jobs (seen on some boards: title and city run together
     before the first '---'; the id comes after the year). The page's JSON-LD fills title, place and text for lane rows."""
     parts = u.rstrip("/").split("/")
@@ -1321,8 +1354,13 @@ def _sitemap_slug_row(u):
     if m:
         return dict(req=m.group(2), title=m.group(1).replace("-", " ").title(),
                     location="", text="", url=u, posted="", unread="YES")
+    # .../<city>/<title-slug>/<company-id>/<job-id> (Radancy career sites): step back
+    # over every all-digit segment; when the last segment is not all digits, the old rule (the one before it) stands.
+    i = len(parts) - 1
+    while i > 3 and parts[i].isdigit(): i -= 1
+    if i == len(parts) - 1: i = len(parts) - 2
     return dict(req=(re.findall(r"/(\d{5,})/?$", u) or [""])[0],
-                title=parts[-2].replace("-", " ").title() if len(u.split("/")) > 4 else u,
+                title=parts[i].replace("-", " ").title() if len(u.split("/")) > 4 else u,
                 location="", text="", url=u, posted="", unread="YES")
 
 
@@ -1426,13 +1464,59 @@ def oracle(spec, sess, lane=None, cap=400, **_):
     return rows, note
 
 
+def jibe(base, sess, **_):
+    """iCIMS Attract (Jibe) career sites: GET {base}/api/jobs?page=N&limit=100
+    returns totalCount and each job's full description. The salary_* fields can be 0, so the band is
+    read from the description text like any other text band."""
+    base = base.rstrip("/")
+    if not base.startswith("http"): base = "https://" + base
+    rows, seen, page, total = [], set(), 1, None
+    while True:
+        r = sess.get(f"{base}/api/jobs?page={page}&limit=100",
+                     headers={**UA, "Accept": "application/json"}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            return rows, f"jibe {base}: HTTP {r.status_code} on page {page} after {len(rows)} rows"
+        try:
+            d = r.json()
+        except ValueError:
+            return rows, f"jibe {base}: page {page} answered 200 without JSON (a wall, not an empty board)"
+        if total is None:
+            total = d.get("totalCount")
+            total = str(total).replace(",", "").strip()
+            total = int(total) if total.isdigit() else None    # a count sent as text ("3,000"), or none
+        jobs = d.get("jobs") or []
+        new = 0
+        for j in jobs:
+            j = (j.get("data") or j) if isinstance(j, dict) else {}
+            if not isinstance(j, dict): continue
+            rid = str(j.get("req_id") or j.get("slug") or "")
+            if not rid or rid in seen: continue
+            seen.add(rid); new += 1
+            text = " ".join(strip_html(j.get(k) or "") for k in ("description", "qualifications", "responsibilities"))
+            text = re.sub(r"\bUSD\s*\$", "$", text)    # "USD $70,000.00 - USD $110,000.00 /Yr." is unread by bands()
+            lo, hi = j.get("salary_min_value") or 0, j.get("salary_max_value") or 0
+            if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and 30_000 <= lo <= hi:
+                text += f" ${int(lo)} - ${int(hi)}"      # a structured yearly range, when a site fills it
+            rows.append(dict(req=rid, title=j.get("title", ""),
+                location=j.get("full_location") or j.get("location_name") or "",
+                text=text,
+                url=(j.get("meta_data") or {}).get("canonical_url") or f"{base}/jobs/{j.get('slug', rid)}",
+                posted=str(j.get("posted_date") or "")[:10]))
+        if not jobs or not new or (total is not None and len(rows) >= total) or page >= 50: break
+        page += 1; time.sleep(PAUSE)
+    short = total is not None and len(rows) < total
+    return rows, (f"jibe {base}: {len(rows)} of totalCount {total if total is not None else 'not reported'}"
+                  + ("  <-- STOPPED short of totalCount" if short else ""))
+
+
 # kind -> the parts of its spec when the spec is written a|b|c, else None.
 KINDS = {"greenhouse": None, "lever": None, "ashby": None, "icims": None, "sitemap": None, "avature": None,
-         "phenom_widget": None, "successfactors_rss": None,
+         "phenom_widget": None, "successfactors_rss": None, "jibe": None,
          "amazon": None, "workday": ("tenant", "shard", "site"), "oracle": ("host", "siteNumber"), "eightfold": ("host", "domain.com")}
 ADAPTERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "icims": icims, "sitemap": sitemap,
             "avature": avature, "phenom_widget": phenom_widget, "successfactors_rss": successfactors_rss,
-            "workday": workday, "eightfold": eightfold, "amazon": amazon, "oracle": oracle}
+            "workday": workday, "eightfold": eightfold, "amazon": amazon, "oracle": oracle,
+            "jibe": jibe}
 
 
 ATS_FINGERPRINTS = [

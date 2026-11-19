@@ -67,6 +67,18 @@ CASES = [
     ("Secret clearance preferred; active TS/SCI required for some tasks.", A, "preferred then active required"),
     ("Active Secret clearance required, relocation not required.", A, "not required on another noun"),
     ("Must be able to obtain a CPA license within one year. Secret clearance required.", A, "obtaining something else"),
+    ("Must have or obtain a valid driver's license within 30 days.", N, "have or obtain, not a clearance"),
+    ("<li>Must have or obtain a valid driver's license</li><li>Experience with customs clearance</li>", N, "have or obtain, a clearance in the next list item"),
+    ("Must have or obtain a driver's license (needed for site visits and medical clearance before travel).", N, "have or obtain, a medical clearance"),
+    ("Clearance Level Must Currently Possess: SecretClearance Level Must Be Able to Obtain: Top Secret", A, "possess a level that runs into the next label"),
+    ("Must Currently Possess: TSA PreCheck", N, "possess, a word that starts with TS"),
+    ("Candidates Must Currently Possess: TSCM certification", N, "possess, another word that starts with TS"),
+    # Requisition fields: the "minimum" field is held at hire; "have or obtain" is the obtainable one
+    ("This requisition requires the candidate to have a minimum of the following clearance(s): Top Secret/SCI/Polygraph This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret/SCI/Polygraph", A, "requisition minimum TS/SCI/Poly"),
+    ("This requisition requires the candidate to have a minimum of the following clearance(s): Secret This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret/SCI/Polygraph", A, "requisition minimum Secret"),
+    ("This requisition requires the candidate to have a minimum of the following clearance(s): None This requisition requires the hired candidate to have or obtain the following clearance(s): Secret", O, "requisition minimum None"),
+    ("This requisition requires the candidate to have a minimum of the following clearance(s): Not Applicable This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret", O, "requisition minimum Not Applicable"),
+    ("An active Top Secret clearance is required. Applicants must be US citizens to be eligible for a security clearance. This requisition requires the candidate to have a minimum of the following clearance(s): Top Secret This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret", A, "requisition active Top Secret with the eligibility boilerplate"),
 ]
 
 
@@ -87,7 +99,7 @@ def main():
     check(cr.clearance_rule(s, js._clearance_verdict_regex) == cr.clearance_rule(s, js._clearance_verdict_regex) == O
           and s.count("\t") == 1, "pure: same text, same verdict; input untouched")
     check(cr.normalise("a\n\nb\t c \u2013 d") == "a b c - d", "normalise joins lines and dashes")
-    # held_clearance.py keeps by default (12 Nov 2026): the review findings that dropped postable jobs stay kept
+    # held_clearance.py keeps by default: the review findings that dropped postable jobs stay kept
     kept = ["Must be able to obtain a Secret clearance, or ability to obtain.",          # H1: "or ability to obtain." bare
             "Clearance: Secret (ability to obtain)",                                    # H2
             "<h3>Clearance</h3><p>Ability to obtain a Secret clearance</p>",             # H3: heading with no colon
@@ -101,7 +113,7 @@ def main():
             "Our company holds a Top Secret facility clearance.",
             "Preferred Qualifications:\n- Active TS/SCI clearance\n- AWS certification",
             "Do you hold an active TS/SCI clearance?",
-            "Skills: Windows Server, Active Directory, VMware, Secret clearance",              # review 2 (12 Nov)
+            "Skills: Windows Server, Active Directory, VMware, Secret clearance",
             "Pending certifications will not be accepted; Security+ must be held at time of hire.",
             "Clearance:\nApplicants selected will be subject to a security investigation and may need to meet eligibility "
             "requirements for access to classified information; Secret clearance is required.",
@@ -118,13 +130,67 @@ def main():
             "Candidates without an active TS/SCI will not be considered."]
     bad = [k for k in drop if js.clearance_verdict(k) != A]
     check(not bad, "keep by default: plain held wording still drops " + (repr(bad) if bad else "(%d phrases)" % len(drop)))
+    # a requisition "minimum" field: a level qualified after it, or by the next sentence, is kept; a plain level drops,
+    # however the field is split
+    head = "This requisition requires the candidate to have a minimum of the following clearance(s): "
+    req_kept = [head + t for t in (
+        "Secret. The clearance can be obtained after hire; we will sponsor it.",
+        "Secret. Candidates without a clearance may apply; we sponsor clearances for this role.",
+        "Secret, or the ability to obtain one within 90 days of hire.", "Secret eligibility", "Top Secret eligibility",
+        "TS eligible", "Secret Clearance Eligible", "Secret - Highly Preferred", "Secret preferred", "Secret (or ability to obtain)",
+        "Secret - must be able to obtain", "Secret, not required at start", "Secret (may be obtained after hire)",
+        "Secretary of the Army designation letter", "Top Secret (interim acceptable)", "Secret/Public Trust",
+        "Secret; interim clearance is acceptable", "None", "Not Applicable", "Secret, if possible", "Secret - ok to start without one",
+        "Secret or Public Trust", "Secret (Public Trust acceptable)", "Secret, open to uncleared candidates", "Secret - waivable for strong candidates",
+        "Secret (TBD)", "Secret, can be pending at start", "Interim Secret", "Secret clearance with the ability to obtain TS/SCI")]
+    bad = [k[len(head):] for k in req_kept if js.clearance_verdict(k) == A]
+    check(not bad, "requisition minimum: a qualified level is kept " + (repr(bad) if bad else "(%d phrases)" % len(req_kept)))
+    hired = " This requisition requires the hired candidate to have or obtain the following clearance(s): Secret"
+    req_page = [head + "Secret. We will sponsor your clearance (we do not sponsor work visas).",
+                "We will sponsor a Secret clearance for the selected candidate. " + head + "Secret",
+                "The clearance can be obtained after hire. " + head + "Secret" + hired,
+                head + "Secret. Relocation is available. We sponsor Secret clearances.",
+                head + "Secret. Candidates must be authorized to work in the US. The company sponsors security clearances.",
+                head + "Secret. An interim clearance is acceptable to start.",
+                "This requisition does not require the candidate to have a minimum of the following clearance(s): Secret",
+                head + "Secret. Uncleared candidates will be considered.", head + "Secret. Candidates who hold no clearance today may still apply.",
+                "<li>" + head.rstrip() + "</li><li>Secret</li><li>Eligibility to obtain is sufficient</li>"]
+    comp = " This requisition requires the hired candidate to have or obtain the following clearance(s): Secret"
+    page = lambda tail: js.strip_html("<p>" + head.rstrip() + "</p><p>Secret</p><p>" + comp.strip().replace(": Secret", ":") + "</p><p>Secret</p>" + tail)
+    req_page += [page("<p>We will sponsor your clearance.</p>"), page("<p>Interim clearances are accepted.</p>"),
+                 page("<p>Work Location Type: Hybrid</p><p>Uncleared candidates will be considered.</p>"),
+                 head + "Secret" + comp + " We will sponsor your clearance", head + "Secret" + comp + ". Eligibility to obtain is sufficient.",
+                 head + "Secret. Candidates who do not currently hold a clearance are encouraged to apply.",
+                 head + "Secret. A clearance is not required at the time of application.",
+                 head + "Secret. No clearance is needed to start; Secret is required within six months of hire.",
+                 head + "Secret. If you are not cleared, you can still apply."]
+    req_page += [x + " " + head + "Secret" for x in ("Must be able to acquire a Secret clearance.", "Must be able to gain a Secret clearance within 90 days.",
+                 "Selected candidates will undergo a Secret background investigation after the offer.",
+                 "We will submit your Secret clearance paperwork after hire.", "The clearance is completed post-hire.")]
+    bad = [k[-50:] for k in req_page if js.clearance_verdict(k) == A]
+    check(not bad, "requisition minimum: an offer elsewhere on the page, or a negation, keeps it "
+          + (repr(bad) if bad else "(%d phrases)" % len(req_page)))
+    req_drop = [head + "Secret", head + "Top-Secret", head + "DoD Secret", head + "TS/SCI w/ Poly", head + "Secret. We do not sponsor visas.",
+                head.rstrip() + "\nTop Secret/SCI", "<div>" + head.rstrip() + "</div><div>Secret</div>",
+                head + "Secret This requisition requires the hired candidate to have or obtain the following clearance(s): Top Secret", head + "Secret. Benefits include medical, dental and vision.",
+                head + "Secret. Please apply online.", head + "U.S. Government Secret", head + "Top Secret/SCI/Polygraph",
+                "Basic Qualifications: ability to obtain a polygraph. " + head + "Top Secret/SCI/Polygraph" + hired,
+                "Active Top Secret/SCI clearance with ability to obtain/maintain a polygraph. " + head + "Top Secret/SCI" + hired,
+                "Applicants must be US citizens to be eligible for a security clearance. " + head + "Secret",
+                "Applicants must meet eligibility requirements for access to classified information. " + head + "Secret", "We work with our government sponsors. " + head + "Secret",
+                "Preferred Qualifications:\n" + head + "Secret", head + "Secret. Must be able to obtain TS/SCI within one year.",
+                head + "Secret. Candidates without an active clearance will not be considered.", head + "Top Secret-SCI", head + "TS-SCI",
+                "<p>" + head.rstrip() + "</p>\n<p>Top Secret/SCI</p>\n<p>" + hired[1:].replace(": Secret", ":") + "</p><p>Top Secret/SCI</p>"]
+    bad = [k[-40:] for k in req_drop if js.clearance_verdict(k) != A]
+    check(not bad, "requisition minimum: a plain level drops, split or not " + (repr(bad) if bad else "(%d phrases)" % len(req_drop)))
     import time
     t0 = time.time()
     for big in ("<" * 200000, " " * 300000 + "but TS/SCI", "TS/SCI w/ Full Scope Poly - " * 20000, "secret " * 50000 + "clearance",
-                "Active Secret clearance" + " - Welcome" * 30000, "active Secret clearance and ability to obtain Top Secret " * 5000):
+                "Active Secret clearance" + " - Welcome" * 30000, "active Secret clearance and ability to obtain Top Secret " * 5000,
+                (head.rstrip() + "\n") * 3000):
         js.clearance_verdict(big)
-    check(time.time() - t0 < 10, "linear time: six 140-300 KB adversarial texts in %.1f s" % (time.time() - t0))
-    n = len(CASES) + 11
+    check(time.time() - t0 < 10, "linear time: seven 140-300 KB adversarial texts in %.1f s" % (time.time() - t0))
+    n = len(CASES) + 14
     print(("PASS" if OK else "FAIL") + " test_clearance_rule (%d checks)" % n)
     return 0 if OK else 1
 
