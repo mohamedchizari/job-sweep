@@ -494,7 +494,8 @@ def enrich_from_page(row, sess, fields=None):
     carry no salary, place or text (iCIMS, Avature, sitemaps, feeds). row["_detail"] says how the
     read went, so the adapter's note can count the reads that failed. `fields`, when given, is
     called with the row and the page of a read that answered, before the JSON-LD is read: a
-    location it sets is kept."""
+    location it sets is kept. A row with no title takes the JSON-LD title (a string only, markup stripped,
+    300 characters at most, no lone surrogate); a row with a title keeps it."""
     try:
         r = sess.get(row["url"], headers=UA, timeout=TIMEOUT)
         if r.status_code != 200:
@@ -504,6 +505,8 @@ def enrich_from_page(row, sess, fields=None):
         if fields: fields(row, r.text)
         jp = jsonld_jobposting(r.text)
         if jp:
+            if not row.get("title") and isinstance(jp.get("title"), str) and jp["title"].strip():
+                row["title"] = re.sub(r"[\ud800-\udfff]", "", strip_html(jp["title"])).strip()[:300]   # any adapter's untitled row
             row["text"] = (row.get("text", "") + " " + strip_html(jp.get("description", "")))[:60000]
             row["posted"] = row.get("posted") or str(jp.get("datePosted") or "")[:10]
             row["location"] = row.get("location") or ld_location(jp)
@@ -1343,16 +1346,59 @@ def successfactors_rss(host, sess, **_):
         row["unread"] = "YES"
     return rows, f"successfactors-rss {host}: {len(rows)} items in /sitemal.xml, {n} lane rows read" + failed_reads(rows)
 
+_XML_ENT = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+
+def _xml_text(s):
+    """XML's five entities and its numeric character references, decoded in one pass (never twice); any other
+    "&", such as a raw "&region=" in a careless sitemap, is left as it is."""
+    def one(m):
+        e = m.group(1)
+        if e[0] != "#": return _XML_ENT[e]
+        try: return chr(int(e[2:], 16) if e[1] in "xX" else int(e[1:]))
+        except (ValueError, OverflowError): return m.group(0)
+    return re.sub(r"&(#[0-9]+|#[xX][0-9a-fA-F]+|amp|lt|gt|quot|apos);", one, s)
+
+def _slug_title(s):
+    """A title from a URL slug: percent-decoded, dashes to spaces, runs of spaces closed up."""
+    return re.sub(r"\s+", " ", unquote(s).replace("-", " ")).strip()
+
+# A Workday job URL: a tenant's own host (<tenant>.wdN.myworkdayjobs.com/<site>/job/...) or the shared one
+# (wdN.myworkdaysite.com/recruiting/<tenant>/<site>/job/...), either with a locale such as en-US first.
+WORKDAY_JOB = re.compile(r"https?://[^/]+\.(?:myworkdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?[^/]+"
+                         r"|myworkdaysite\.com/(?:[a-z]{2}-[a-z]{2}/)?recruiting/[^/]+/[^/]+)/job/[^/]+/(.+?)_([a-z]{0,5}-?\d[\w-]*)$", re.I)
+WORKDAY_HOST = re.compile(r"\.myworkday(?:jobs|site)\.com/", re.I)
+
 def _sitemap_slug_row(u):
-    """Row from a sitemap URL. Three shapes: .../<title-slug>/<id>/ (title from the segment before the id);
-    .../<title-slug>/<company-id>/<job-id> (a URL that ends in two or more all-digit segments: the title is the
-    last segment that is not all digits); and
-    .../jobs/<title-and-place>---<state>---<year>-<id>-jobs (seen on some boards: title and city run together
-    before the first '---'; the id comes after the year). The page's JSON-LD fills title, place and text for lane rows."""
+    """Row from a sitemap URL. Six shapes, tried in this order:
+    1. Workday's .../job/<place>/<Title-Slug>_<req> (WORKDAY_JOB, the query string aside; the title from the slug
+       before the req; the place is left to the page; any other Workday URL gets no title, so the sitemap adapter
+       reads the page for it);
+    2. an untitled detail URL, .../jobdetails?id=<req>, any id, with or without a locale suffix such as _en or
+       _en-us (no title: the sitemap adapter reads the page for it);
+    3. the .../job/<req>/<Title-Slug> shape of some Phenom career sites (a req of up to four letters, an
+       optional dash and four or more digits, then only digits, dashes or underscores; never on a Workday host);
+    4. .../jobs/<title-and-place>---<state>---<year>-<id>-jobs (seen on some boards: title and city run together
+       before the first '---'; the id comes after the year);
+    5. .../<title-slug>/<company-id>/<job-id> (a URL that ends in two or more all-digit segments: the title is the
+       last segment that is not all digits);
+    6. .../<title-slug>/<id>/ (the title from the segment before the id).
+    Slug titles are percent-decoded. The page's JSON-LD fills title, place and text for lane rows."""
+    u = u.strip()
     parts = u.rstrip("/").split("/")
+    wd = WORKDAY_JOB.match(u.split("?")[0].rstrip("/"))
+    if wd:
+        return dict(req=wd.group(2), title=_slug_title(wd.group(1)), location="", text="", url=u, posted="", unread="YES")
+    if WORKDAY_HOST.search(u):    # a Workday URL the pattern does not read: the page gives the title
+        return dict(req="", title="", location="", text="", url=u, posted="", unread="YES")
+    jd = re.search(r"/jobdetails\?(?:.*&)?id=([^&#]+?)(?:_[a-z]{2}(?:-[a-z]{2})?)?(?:[&#]|$)", u, re.I)
+    if jd:
+        return dict(req=jd.group(1), title="", location="", text="", url=u, posted="", unread="YES")
+    if (len(parts) >= 3 and not WORKDAY_HOST.search(u) and parts[-3] == "job"
+            and re.match(r"^[A-Za-z]{0,4}-?\d{4,}[\d_-]*$", parts[-2]) and not parts[-1].isdigit()):
+        return dict(req=parts[-2], title=_slug_title(parts[-1]), location="", text="", url=u, posted="", unread="YES")
     m = re.match(r"(.+?)---[a-z-]+---\d{4}-(\d+)-jobs$", parts[-1]) if parts else None
     if m:
-        return dict(req=m.group(2), title=m.group(1).replace("-", " ").title(),
+        return dict(req=m.group(2), title=_slug_title(m.group(1)).title(),
                     location="", text="", url=u, posted="", unread="YES")
     # .../<city>/<title-slug>/<company-id>/<job-id> (Radancy career sites): step back
     # over every all-digit segment; when the last segment is not all digits, the old rule (the one before it) stands.
@@ -1360,30 +1406,72 @@ def _sitemap_slug_row(u):
     while i > 3 and parts[i].isdigit(): i -= 1
     if i == len(parts) - 1: i = len(parts) - 2
     return dict(req=(re.findall(r"/(\d{5,})/?$", u) or [""])[0],
-                title=parts[i].replace("-", " ").title() if len(u.split("/")) > 4 else u,
+                title=_slug_title(parts[i]).title() if len(u.split("/")) > 4 else u,
                 location="", text="", url=u, posted="", unread="YES")
 
 
+SITEMAP_UNTITLED_MAX = 2000   # untitled pages read per sitemap at most, --cap 0 included: each is a whole page
+SITEMAP_WALL_RUN = 3          # refusals in a row (HTTP 403, 429 or 503) that end a sitemap's page reads: a wall
+
 def sitemap(url, sess, cap=400, lane=None, **_):
-    """A jobs sitemap whose URLs end .../<title-slug>/<id>/ : the title is read from the slug.
-    Sitemap indexes and .gz files are not followed. A sitemap row has no location and no text, so
-    it cannot pass the place gate until its page is read: with --lane, lane-titled rows get their
-    JSON-LD; every other row is marked unread."""
+    """A jobs sitemap: one row per distinct, non-empty <loc> (stripped; XML's own entities and numeric references decoded), the title
+    read from the URL (_sitemap_slug_row). Sitemap indexes and .gz files are not followed. A sitemap row has
+    no location and no text, so it cannot pass the place gate until its page is read. With --lane, rows are
+    taken in sitemap order: a row whose URL carries no title has its page read for the JSON-LD title (that
+    read is the row's only one; a second URL for a req whose page already answered, such as another
+    locale's, is not read), and a lane-titled row gets its JSON-LD; every other row stays unread. Every page
+    read counts against the cap, titled or not, and untitled pages stop at SITEMAP_UNTITLED_MAX whatever the
+    cap; SITEMAP_WALL_RUN refusals in a row (403, 429, 503) end the reads as a wall. The note counts what any of
+    these left unread, and the pages that answered without a title."""
     r = sess.get(url, headers=UA, timeout=TIMEOUT)
     if r.status_code != 200: return [], f"sitemap {url}: HTTP {r.status_code}"
-    locs = re.findall(r"<loc>([^<]+)</loc>", r.text)
+    found = [x for x in (_xml_text(u.strip()) for u in re.findall(r"<loc>([^<]+)</loc>", r.text)) if x]
+    locs = list(dict.fromkeys(found))
     rows = [_sitemap_slug_row(u) for u in locs]
-    n = in_lane = 0
+    n = in_lane = reads = untitled = untitled_reads = titled = no_title = same_req = 0
+    lane_skipped = untitled_capped = untitled_over = 0
+    answered = set()                      # reqs whose untitled page answered
+    wall, refused_run, stopped_at = ("HTTP 403", "HTTP 429", "HTTP 503"), 0, None
     if lane:
-        for row in rows:
+        for k, row in enumerate(rows):
+            if refused_run >= SITEMAP_WALL_RUN: stopped_at = k; break
+            if not row["title"]:          # no title in the URL: the page gives it
+                untitled += 1
+                if row["req"] and row["req"] in answered: same_req += 1; continue
+                if cap and reads >= cap: untitled_capped += 1; continue
+                if untitled_reads >= SITEMAP_UNTITLED_MAX: untitled_over += 1; continue
+                key = row["req"]          # the URL's req: the page's JSON-LD identifier may replace it
+                enrich_from_page(row, sess); time.sleep(PAUSE); reads += 1; untitled_reads += 1
+                refused_run = refused_run + 1 if row.get("_detail") in wall else 0   # untitled read
+                if row.get("_detail") != "ok": continue
+                if key: answered.add(key)
+                if not row["title"]: no_title += 1; row["text"] = ""; continue
+                titled += 1
+                if not lane.search(row["title"]): row["text"] = ""; continue   # read for its title only: never a pass
+                in_lane += 1; row["unread"] = ""; n += 1
+                continue
             if not lane.search(row["title"]): continue
             in_lane += 1
-            if cap and in_lane > cap: continue
-            enrich_from_page(row, sess); time.sleep(PAUSE)
+            if cap and reads >= cap: lane_skipped += 1; continue
+            enrich_from_page(row, sess); time.sleep(PAUSE); reads += 1
+            refused_run = refused_run + 1 if row.get("_detail") in wall else 0       # lane read
             if row.get("_detail") == "ok": row["unread"] = ""; n += 1
-    return rows, (f"sitemap {url}: {len(locs)} URLs, {n} lane rows read"
+    workday_urls = sum(1 for u in locs if WORKDAY_HOST.search(u))
+    return rows, (f"sitemap {url}: {len(locs)} URLs" + (f" ({len(found) - len(locs)} repeated URLs dropped)" if len(found) > len(locs) else "")
+                  + f", {n} lane rows read"
+                  + (f", {titled} of {untitled} untitled pages gave a title" if untitled else "")
+                  + (f", {same_req} more URLs for a req already read not read" if same_req else "")
                   + ("" if lane else " (none: pass --lane, or no row can pass the place gate)") + failed_reads(rows)
-                  + (f"  <-- CAPPED at {cap} of {in_lane} lane rows. Use --cap 0." if cap and in_lane > cap else ""))
+                  + (f"  <-- {no_title} pages answered with no JSON-LD title" if no_title else "")
+                  + (f"  <-- CAPPED at {cap} page reads: {lane_skipped} of {in_lane} lane rows"
+                     + (f" and {untitled_capped} of {untitled} untitled pages" if untitled else "") + " not read. Use --cap 0."
+                     if lane_skipped or untitled_capped else "")
+                  + (f"  <-- {untitled_over} untitled pages not read: at most {SITEMAP_UNTITLED_MAX} are read per sitemap, --cap 0 included"
+                     if untitled_over else "")
+                  + (f"  <-- STOPPED: refused {SITEMAP_WALL_RUN} times in a row (HTTP 403, 429 or 503: a wall); {len(rows) - stopped_at}"
+                     " rows after it not read" if stopped_at is not None else "")
+                  + (f"  <-- {workday_urls} Workday URLs: the Workday siteMap.xml files tried listed 100 postings at most,"
+                     " so this list may be cut; the workday adapter reads the whole list" if workday_urls >= 100 else ""))
 
 def oracle(spec, sess, lane=None, cap=400, **_):
     """Oracle Recruiting Cloud, Candidate Experience (public, no sign-in). spec = 'host|siteNumber',
@@ -1697,7 +1785,7 @@ def main():
     ap.add_argument("--cap", type=int, default=400,
                     help="most rows or detail pages read per employer by the adapters that take a cap "
                          "(iCIMS, Workday details, Avature, sitemap); 0 = no cap, though Avature still "
-                         "stops at 200 pages (default: 400)")
+                         "stops at 200 pages and a sitemap reads at most 2,000 pages for their titles (default: 400)")
     ap.add_argument("--delta", help="write a markdown delta: the band gate against the title gate in the settings")
     a = ap.parse_args()
 

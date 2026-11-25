@@ -12,6 +12,9 @@ each run has a time limit and, where the system supports it, a memory limit.
 
   python3 tests/mutate.py            (six at a time)
   python3 tests/mutate.py 2          (two at a time)
+
+Keep the number at or below the machine's cores: under load the linear-time check of
+test_clearance_rule can fail, and a rule then reads as caught when it is not.
 """
 import os, shutil, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -344,10 +347,40 @@ M = [
  ("amazon: short list not flagged", J, "    if not stop and total and len(rows) < total:", "    if False:"),
  ("successfactors: any bracket is a place", J, '''        if m and not ("," in m["loc"] or re.search(r"\\b[A-Z]{2}\\b", m["loc"])): m = None   # "(Excel)" is not a place\n''', ""),
  ("successfactors: every item read", J, '        if S.lane.search(row["title"]) and row["url"]:', '        if row["url"]:'),
- ("sitemap: rows not marked unread", J, 'location="", text="", url=u, posted="", unread="YES") for u in locs]', 'location="", text="", url=u, posted="") for u in locs]'),
- ("sitemap: cap off", J, "            if cap and in_lane > cap: continue\n", ""),
+ ("sitemap: rows not marked unread", J, '                location="", text="", url=u, posted="", unread="YES")\n\n\nSITEMAP_UNTITLED_MAX', '                location="", text="", url=u, posted="")\n\n\nSITEMAP_UNTITLED_MAX'),
+ ("sitemap: cap off for lane rows", J, "            if cap and reads >= cap: lane_skipped += 1; continue\n", ""),
+ ("sitemap: cap off for untitled reads", J, "                if cap and reads >= cap: untitled_capped += 1; continue\n", ""),
  ("sitemap: failed read clears unread", J, '            if row.get("_detail") == "ok": row["unread"] = ""; n += 1', '            row["unread"] = ""; n += 1'),
- ("sitemap: cap not flagged", J, 'lane rows. Use --cap 0." if cap and in_lane > cap else ""))', 'lane rows. Use --cap 0." if False else ""))'),
+ ("sitemap: cap not flagged", J, '                     if lane_skipped or untitled_capped else "")', '                     if False else "")'),
+ ("sitemap: untitled rows not read for their titles", J, '            if not row["title"]:          # no title in the URL: the page gives it\n', '            if False:\n'),
+ ("sitemap: repeated URLs kept", J, "    locs = list(dict.fromkeys(found))\n", "    locs = found\n"),
+ ("sitemap: a long Workday list not flagged as possibly cut", J, 'the workday adapter reads the whole list" if workday_urls >= 100 else ""))', 'the workday adapter reads the whole list" if False else ""))'),
+ ("sitemap: a short Workday list flagged", J, "if workday_urls >= 100 else", "if workday_urls >= 1 else"),
+ ("sitemap: a second URL for a req already read is read again", J, '                if row["req"] and row["req"] in answered: same_req += 1; continue\n', ""),
+ ("sitemap: untitled reads not bounded under --cap 0", J, "                if untitled_reads >= SITEMAP_UNTITLED_MAX: untitled_over += 1; continue\n", ""),
+ ("sitemap: a page without a title counted as titled", J, '                if not row["title"]: no_title += 1; row["text"] = ""; continue\n', '                if False: no_title += 1; row["text"] = ""; continue\n'),
+ ("sitemap: a row read for its title keeps the page text", J, '                if not lane.search(row["title"]): row["text"] = ""; continue   # read for its title only', '                if not lane.search(row["title"]): continue   # read for its title only'),
+ ("sitemap: the page's identifier checked for a second locale", J, "                if key: answered.add(key)\n", '                if row["req"]: answered.add(row["req"])\n'),
+ ("sitemap: a Workday query string kept", J, 'WORKDAY_JOB.match(u.split("?")[0].rstrip("/"))', 'WORKDAY_JOB.match(u.rstrip("/"))'),
+ ("sitemap: a Workday URL the pattern misses read as a slug", J, '    if WORKDAY_HOST.search(u):    # a Workday URL', '    if False:    # a Workday URL'),
+ ("sitemap: a Workday req split at its last underscore", J, r"/job/[^/]+/(.+?)_(", r"/job/[^/]+/(.+)_("),
+ ("sitemap: numeric references left", J, r'return re.sub(r"&(#[0-9]+|#[xX][0-9a-fA-F]+|amp|lt|gt|quot|apos);", one, s)', r'return re.sub(r"&(amp|lt|gt|quot|apos);", one, s)'),
+ ("enrich: markup kept in a JSON-LD title", J, r'strip_html(jp["title"])).strip()[:300]', r'jp["title"]).strip()[:300]'),
+ ("enrich: a lone surrogate kept in a JSON-LD title", J, r're.sub(r"[\ud800-\udfff]", "", strip_html(jp["title"]))', r'(strip_html(jp["title"]))'),
+ ("enrich: a JSON-LD title not cut", J, r'strip_html(jp["title"])).strip()[:300]', r'strip_html(jp["title"])).strip()'),
+ ("sitemap: an empty <loc> kept", J, r'for u in re.findall(r"<loc>([^<]+)</loc>", r.text)) if x]', r'for u in re.findall(r"<loc>([^<]+)</loc>", r.text))]'),
+ ("sitemap: HTML entities read into a <loc>", J, "(_xml_text(u.strip()) for u in", "(html.unescape(u.strip()) for u in"),
+ ("sitemap: Workday URLs in capitals or with a locale missed", J, r"""[\w-]*)$", re.I)""" + "\nWORKDAY_HOST", r"""[\w-]*)$")""" + "\nWORKDAY_HOST"),
+ ("sitemap: a short req read as a Phenom req", J, r'^[A-Za-z]{0,4}-?\d{4,}[\d_-]*$', r'^[A-Za-z]{0,4}-?\d[\w-]*$'),
+ ("sitemap: letters after a Phenom req's digits", J, r'^[A-Za-z]{0,4}-?\d{4,}[\d_-]*$', r'^[A-Za-z]{0,4}-?\d{4,}[\w-]*$'),
+ ("sitemap: the Phenom guard for an all-digit last segment removed", J, ' and not parts[-1].isdigit()):', '):'),
+ ("sitemap: a wall does not stop the reads", J, "            if refused_run >= SITEMAP_WALL_RUN: stopped_at = k; break\n", ""),
+ ("sitemap: the lane cap counts lane rows, not page reads", J, "            if cap and reads >= cap: lane_skipped += 1; continue\n", "            if cap and in_lane > cap: lane_skipped += 1; continue\n"),
+ ("sitemap: a refused page marks its req as answered", J, '                if row.get("_detail") != "ok": continue\n                if key: answered.add(key)\n', '                if key: answered.add(key)\n                if row.get("_detail") != "ok": continue\n'),
+ ("sitemap: XML entities other than &amp; left", J, r'#[xX][0-9a-fA-F]+|amp|lt|gt|quot|apos);', r'#[xX][0-9a-fA-F]+|amp);'),
+ ("sitemap: a Workday list of 99 flagged", J, "if workday_urls >= 100 else", "if workday_urls >= 50 else"),
+ ("sitemap: slug titles not percent-decoded", J, r'    return re.sub(r"\s+", " ", unquote(s).replace("-", " ")).strip()', r'    return re.sub(r"\s+", " ", s.replace("-", " ")).strip()'),
+ ("enrich: the JSON-LD title overwrites a row's title", J, '            if not row.get("title") and isinstance(jp.get("title"), str) and jp["title"].strip():\n', '            if isinstance(jp.get("title"), str) and jp["title"].strip():\n'),
  # ---------------- settings
  ("settings: unknown keys accepted", S, "    stray = sorted(set(value) - KEYS[known])", "    stray = []"),
  ("settings: spec parts not checked", S, '            if parts and (len(spec.split("|")) != len(parts) or not all(p.strip() for p in spec.split("|"))):', "            if False:"),
@@ -730,7 +763,7 @@ def limit():
     resource.setrlimit(resource.RLIMIT_AS, (1500 * 1024 * 1024, 1500 * 1024 * 1024))
 
 
-FILES = ("job_scanner.py", "sweep_settings.py", "clearance_rule.py", "posting_census.py", "weekly_run.py", "config.example.json")
+FILES = ("job_scanner.py", "sweep_settings.py", "clearance_rule.py", "held_clearance.py", "posting_census.py", "weekly_run.py", "config.example.json")
 
 # A harness that cannot fail is not a test: if the copy it runs is broken (a file left out of FILES, a test that
 # fails on the code as it is), every rule below reads "caught". So two changes that break nothing run first, and

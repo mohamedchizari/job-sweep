@@ -273,7 +273,8 @@ hostname again after validation.
 (Workday, iCIMS sitemaps, Avature result pages, Eightfold search), so the band and the clearance
 wording need one more request per posting, and a large tenant has more than a thousand postings.
 With `--lane`, details are read for lane titles only; the other rows are left out before the fetch
-(iCIMS) or marked `unread`.
+(iCIMS) or marked `unread`. A sitemap URL that carries no title is the exception: its page is read
+for the title first.
 
 ## 7. What each adapter can and cannot see
 
@@ -289,7 +290,7 @@ With `--lane`, details are read for lane titles only; the other rows are left ou
 | `avature` | Result pages until one repeats or is empty. Stops at `--cap` rows or at 200 pages, flagged. A board is read as a `FolderDetail` board when its first result page links no `JobDetail` page, links a `FolderDetail` page, and holds `folderOffset=` or `folderRecordsPerPage=` anywhere in it; the note then says "FolderDetail links", also when a later result page is refused. It is paged with `folderOffset`. The step is the first of these that is above zero and no more than the jobs the first page links: the smallest `folderOffset` on that page, the smallest `folderRecordsPerPage` on it; failing both, the number of those jobs. When the first page prints "N results" and the rows listed come to another number, that is flagged; a list that reaches `--cap` with exactly that number of rows is not flagged as stopped. | Many tenants refuse plain HTTP clients with 406. That is a wall. On a `FolderDetail` board a job is the number its address ends in, before a closing "/" and anything from "?" or "#" on (the whole address when it ends in none); its title is the text of its first link that has words. The title comes from the address instead (the part before the number) when no link has words, or when two or more jobs on one result page carry the same words, on that page or an earlier one: such a text is taken for a button. Its location is the job page's City, State and Country fields when the page prints a city or a state and its JSON-LD names neither (it can hold a country and a postcode only). |
 | `successfactors_rss` | The feed. No total to check against. | Feed items are teasers; job pages are read for lane titles, and on the site tried they carried no JSON-LD, so the place comes from the title. |
 | `amazon` | Paged until empty or the reported hits. A stop at 10,000 rows, on HTTP 400 after the first page, or short of the reported hits is flagged. | The pay range is the lowest-to-highest market range, not a metro band, and is labelled so. |
-| `sitemap` | Every URL in the file. Sitemap indexes and `.gz` files are not followed. | No location or text without `--lane`: every row is then unread. With it, lane rows are read up to `--cap`, flagged; a row whose page is refused stays unread. |
+| `sitemap` | Every distinct URL in the file, once. Sitemap indexes and `.gz` files are not followed. 100 or more Workday URLs are flagged: the Workday siteMap.xml files tried stopped at 100. | No location or text without `--lane`: every row is then unread. With it, a URL that carries no title has its page read for the JSON-LD title, in the lane or not (at most 2,000 such pages, `--cap 0` included, flagged; a second URL for a req whose page already answered is skipped; a page that answers with no title is flagged), and lane rows are read. Every page read counts against `--cap`, flagged; a row whose page is refused stays unread. |
 
 ## 8. The weekly delta
 
@@ -321,13 +322,15 @@ These are dated observations of other people's services, not promises.
 
 ## 10. How this version was checked
 
-**Offline tests.** `bash tests/run_all.sh` runs four files, 591 checks, with no route to any job
-site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
+**Offline tests.** `bash tests/run_all.sh` runs five files (it prints each file's count of checks),
+with no route to any job site. Fake sessions serve fixtures in each adapter's response shape. The part of `weekly_run.py`
 that starts the sweep is tested with stand-ins for the canary call and the scanner process.
-`python3 tests/mutate.py` then breaks 515 chosen rules on purpose, one at a time, in a copy of the
+`python3 tests/mutate.py` then breaks several hundred chosen rules on purpose, one at a time, in a copy of the
 code: the gates, the band readers, each bound and flag named in section 7, a refused list call
-for nine of the adapters, the settings checks, the census readings, the weekly delta. The tests
-fail every time, once by not finishing (without the Avature page bound its test never ends).
+for nine of the adapters, the settings checks, the census readings, the weekly delta. It prints
+how many were caught, survived or skipped; one is caught by not finishing (without the Avature
+page bound its test never ends). On 25 Nov 2026 the clearance verdict rules survived and seven
+entries were skipped because their code had moved: both are known gaps.
 
 The list was chosen by hand, and a rule outside it can still be untested. Gaps that are known:
 the census's `--show` printing, the wording of most notes beyond the flags, and everything only a

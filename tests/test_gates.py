@@ -1342,6 +1342,72 @@ def test_adapters():
     check(r["title"] == "Senior Controller" and r["req"] == "67890123", f"sitemap: a URL ending in two all-digit segments takes the title before both ({r['title']!r})")
     r = js._sitemap_slug_row("https://careers.example.com/job/springfield/senior-controller/67890123/")
     check(r["title"] == "Senior Controller" and r["req"] == "67890123", f"sitemap: one id segment, the title before it ({r['title']!r})")
+    # Workday: .../job/<place>/<Title-Slug>_<req>
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/Acme_Jobs/job/Springfield-IL/Senior-Controller-and-Cost-Analyst_R0001234")
+    check(r["title"] == "Senior Controller and Cost Analyst" and r["req"] == "R0001234" and r["location"] == "", f"sitemap: a Workday URL takes the title after the place, not the place ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd5.myworkdayjobs.com/External/job/Springfield-IL/Payroll-Administrator_R-0001234")
+    check(r["title"] == "Payroll Administrator" and r["req"] == "R-0001234", f"sitemap: Workday req with a dash ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd5.myworkdayjobs.com/Acme_Careers/job/USA-IL-Springfield/Lead-Payroll-Analyst_RQ1234-1")
+    check(r["title"] == "Lead Payroll Analyst" and r["req"] == "RQ1234-1", f"sitemap: Workday req with a suffix ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/External/job/1A2-SPRINGFIELD-IL/Senior-Controller---Tier-3_1234")
+    check(r["title"] == "Senior Controller Tier 3" and r["req"] == "1234", f"sitemap: Workday all-digit req, a place that starts with a digit ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/External/job/1A2-SPRINGFIELD-IL/Senior-Controller_JOBR1234")
+    check(r["title"] == "Senior Controller" and r["req"] == "JOBR1234", f"sitemap: Workday req of four letters, not read as a Phenom req ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/en-US/External/job/Springfield-IL/Senior-Controller%2C-Tax_R0001234")
+    check(r["title"] == "Senior Controller, Tax" and r["req"] == "R0001234", f"sitemap: a percent-encoded Workday slug is decoded ({r['title']!r})")
+    # some Phenom career sites: .../job/<req>/<Title-Slug>
+    r = js._sitemap_slug_row("https://careers.example.com/us/en/job/R1234567/Senior-Controller")
+    check(r["title"] == "Senior Controller" and r["req"] == "R1234567", f"sitemap: a Phenom URL takes the title after the req ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/us/en/job/R-123456/Payroll-Manager")
+    check(r["title"] == "Payroll Manager" and r["req"] == "R-123456", f"sitemap: Phenom req with a dash ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/us/en/job/JR12345/Cost-Analyst")
+    check(r["title"] == "Cost Analyst" and r["req"] == "JR12345", f"sitemap: Phenom JR req ({r['title']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/job/c4isr-systems-engineer/JR12345")
+    check(r["title"] == "C4Isr Systems Engineer", f"sitemap: a title slug that starts with a letter and a digit is not read as a Phenom req ({r['title']!r}, {r['req']!r})")
+    for u in ("https://wd1.myworkdaysite.com/en-US/recruiting/acme/Acme_Jobs/job/Springfield-IL/Senior-Controller_R0001234",
+              "https://ACME.WD1.MYWORKDAYJOBS.COM/Acme_Jobs/job/Springfield-IL/Senior-Controller_R0001234"):
+        r = js._sitemap_slug_row(u)
+        check(r["title"] == "Senior Controller" and r["req"] == "R0001234", f"sitemap: a Workday URL on the shared host or in capitals ({u} -> {r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/External/job/Springfield-IL/Payroll-Analyst-II_R0001234_1")
+    check(r["title"] == "Payroll Analyst II" and r["req"] == "R0001234_1", f"sitemap: a Workday req with an underscore suffix stays whole ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/External/job/Springfield-IL/Cost-Analyst_R0001234?source=x")
+    check(r["title"] == "Cost Analyst" and r["req"] == "R0001234" and r["url"].endswith("?source=x"), f"sitemap: a query string on a Workday URL is set aside ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://acme.wd1.myworkdayjobs.com/External/job/Springfield-IL/Cost-Analyst_REQUIS12345")
+    check(r["title"] == "" and r["req"] == "", f"sitemap: a Workday job URL the pattern does not read gets no title, not the place ({r['title']!r})")
+    for u, title, req in (("https://careers.example.com/job/2026-summer-intern/JR12345", "2026 Summer Intern", ""),
+                          ("https://careers.example.com/jobdetails?id=JREQ12345", "", "JREQ12345"),
+                          ("https://careers.example.com/jobdetails?id=abc-def_en", "", "abc-def"),
+                          ("https://acme.wd1.myworkdayjobs.com/en-US/Acme_Jobs/details/Senior-Controller_R0001234", "", ""),
+                          ("https://careers.example.com/us/en/job/ABCD12345/Cost-Analyst", "Cost Analyst", "ABCD12345"),
+                          ("https://careers.example.com/us/en/job/R1234567/12345", "R1234567", "12345")):
+        r = js._sitemap_slug_row(u)
+        check(r["title"] == title and r["req"] == req, f"sitemap: {u} -> title {title!r}, req {req!r} ({r['title']!r}, {r['req']!r})")
+    r = js._sitemap_slug_row("https://careers.example.com/jobs/senior-controller%2C-tax/12345/")
+    check(r["title"] == "Senior Controller, Tax" and r["req"] == "12345", f"sitemap: an older-shape slug is percent-decoded too ({r['title']!r})")
+    # untitled detail URLs: .../jobdetails?id=<req>[_<locale>]
+    for u in ("https://careers.example.com/jobdetails?id=R00012345_en", "https://careers.example.com/jobdetails?src=x&id=R00012345_EN",
+              "https://careers.example.com/jobdetails?id=R00012345_en-us", "https://careers.example.com/jobdetails?id=R00012345"):
+        r = js._sitemap_slug_row(u)
+        check(r["title"] == "" and r["req"] == "R00012345", f"sitemap: an untitled jobdetails URL keeps the req and leaves the title to the page ({u} -> {r['req']!r})")
+    # enrich_from_page: the JSON-LD title fills an untitled row only
+    def _ld(title):
+        return ('<script type="application/ld+json">{"@type":"JobPosting","title":%s,"description":"x",'
+                '"jobLocation":{"address":{"addressLocality":"Springfield","addressRegion":"IL"}}}</script>' % json.dumps(title))
+    class _One:
+        def __init__(self, page): self.page = page
+        def get(self, url, **_): return Resp(text=self.page)
+    row = js.enrich_from_page(dict(req="R1", title="", location="", text="", url="https://careers.example.com/jobdetails?id=R1_en"), _One(_ld("Senior Controller")))
+    check(row["title"] == "Senior Controller" and "Springfield" in row["location"], f"enrich: an untitled row takes the JSON-LD title ({row.get('title')!r})")
+    row = js.enrich_from_page(dict(req="R1", title="Kept", location="", text="", url="https://careers.example.com/x"), _One(_ld("Senior Controller")))
+    check(row["title"] == "Kept", f"enrich: a row with a title keeps it ({row.get('title')!r})")
+    row = js.enrich_from_page(dict(req="R1", title="", location="", text="", url="https://careers.example.com/x"), _One(_ld(["Senior Controller", "Cost Analyst"])))
+    check(row["title"] == "", f"enrich: a JSON-LD title that is not a string is not taken ({row.get('title')!r})")
+    row = js.enrich_from_page(dict(req="R1", title="", location="", text="", url="https://careers.example.com/x"), _One(_ld("<b>Senior &amp; Controller</b>")))
+    check(row["title"] == "Senior & Controller", f"enrich: markup is stripped from a JSON-LD title ({row.get('title')!r})")
+    row = js.enrich_from_page(dict(req="R1", title="", location="", text="", url="https://careers.example.com/x"), _One(_ld("Controller " * 100)))
+    check(0 < len(row["title"]) <= 300, f"enrich: a JSON-LD title is cut at 300 characters ({len(row.get('title', ''))})")
+    row = js.enrich_from_page(dict(req="R1", title="", location="", text="", url="https://careers.example.com/x"), _One(_ld("Senior \ud800Controller")))
+    check(row["title"] == "Senior Controller", f"enrich: a lone surrogate in a JSON-LD title is dropped ({row.get('title')!r})")
     r = js._sitemap_slug_row("https://careers.example.com/jobs/senior-controller-springfield---co---2026-4455-jobs")
     check(r["req"] == "4455" and r["title"].startswith("Senior Controller"), f"sitemap: the title---state---year-id-jobs shape ({r['title']!r}, {r['req']!r})")
     # ---- jibe
@@ -1471,7 +1537,109 @@ def test_adapters():
             return Resp(text=LD_PAGE) if url.endswith("/10001/") else Resp({}, 403)
     rows, note = js.sitemap("https://x.example/jobs_sitemap.xml", SM3(), lane=lane, cap=3)
     check([r.get("unread") for r in rows] == ["", "YES", "YES", "YES"] and "1 lane rows read" in note and "2 detail reads FAILED" in note
-          and "CAPPED at 3 of 4 lane rows" in note, f"sitemap: the cap is flagged; a row whose page was refused stays unread and is not counted as read ({note})")
+          and "CAPPED at 3 page reads: 1 of 4 lane rows not read" in note, f"sitemap: the cap is flagged; a row whose page was refused stays unread and is not counted as read ({note})")
+    # sitemap(): untitled rows are read for their titles before the lane gate, each page once, every read counted against the cap
+    import re as _re
+    u1 = "https://careers.example.com/jobdetails?lang=en&id=R0000001_en"     # untitled, a lane title on its page
+    u2 = "https://careers.example.com/jobdetails?lang=en&id=R0000002_en"     # untitled, out of the lane
+    u3 = "https://careers.example.com/jobdetails?lang=en&id=R0000003_en"     # untitled, the page refused
+    u4 = "https://careers.example.com/us/en/job/R1234567/Senior-Controller"          # titled, in the lane
+    class _Site:
+        def __init__(self, xml):
+            self.xml, self.got = xml, []
+            self.pages = {u1: _ld("Senior Controller"), u2: _ld("Warehouse Associate"), u4: _ld("Senior Controller")}
+        def get(self, url, **_):
+            self.got.append(url)
+            if url.lower().endswith("sitemap.xml"): return Resp(text=self.xml)
+            return Resp(text=self.pages[url]) if url in self.pages else Resp({}, 404)
+    xml = ("<urlset>" + "".join(f"<loc>{u.replace('&', '&amp;')}</loc>" for u in (u1, u2, u3)) + f"<loc>\n  {u4}\n</loc><loc>{u4}</loc></urlset>")
+    ctl = _re.compile(r"controller", _re.I)
+    site = _Site(xml)
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    pages = site.got[1:]
+    check(len(rows) == 4 and sorted(pages) == sorted([u1, u2, u3, u4]) and len(pages) == len(set(pages)),
+          f"sitemap: each page is read once; a repeated URL is dropped; &amp; and spaces in <loc> are undone ({len(rows)} rows, {pages})")
+    check([r.get("unread") for r in rows] == ["", "YES", "YES", ""] and rows[0]["title"] == "Senior Controller" and rows[0]["req"] == "R0000001"
+          and rows[1]["title"] == "Warehouse Associate" and rows[1]["text"] == "" and rows[2]["title"] == "",
+          f"sitemap: an untitled lane row read for its title is no longer unread; out-of-lane and refused rows stay unread ({[(r['title'], r.get('unread')) for r in rows]})")
+    check("4 URLs (1 repeated URLs dropped), 2 lane rows read, 2 of 3 untitled pages gave a title; 1 detail reads FAILED" in note and "CAPPED" not in note,
+          f"sitemap: the note counts lane rows, untitled reads and the failed read ({note})")
+    site = _Site(xml)
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=1, lane=ctl)
+    check(site.got[1:] == [u1] and [r.get("unread") for r in rows] == ["", "YES", "YES", "YES"]
+          and "CAPPED at 1 page reads: 1 of 2 lane rows and 2 of 3 untitled pages not read" in note,
+          f"sitemap: an untitled page read counts against the cap; past it nothing is read and the note says what was left ({site.got[1:]}, {note})")
+    wd_xml = "".join(f"<loc>https://acme.wd1.myworkdayjobs.com/Acme_Jobs/job/Springfield-IL/Cost-Analyst_R{k:07d}</loc>" for k in range(100))
+    rows, note = js.sitemap("https://acme.wd1.myworkdayjobs.com/Acme_Jobs/siteMap.xml", _Site(wd_xml))
+    check(len(rows) == 100 and "100 Workday URLs" in note and "may be cut" in note, f"sitemap: a list of 100 Workday URLs is flagged as possibly cut ({note[-160:]})")
+    rows, note = js.sitemap("https://acme.wd1.myworkdayjobs.com/Acme_Jobs/siteMap.xml", _Site(wd_xml[:wd_xml.index("</loc>") + 6]))
+    check(len(rows) == 1 and "may be cut" not in note, f"sitemap: a short Workday list is not flagged ({note})")
+    # a page with no title, a second locale of a req already read, a raw & (no HTML entity read into it), an empty <loc>
+    u5 = "https://careers.example.com/jobdetails?id=R0000005_en"
+    u6 = "https://careers.example.com/jobdetails?id=R0000005_en-us"
+    u7 = "https://careers.example.com/jobdetails?id=R0000007_en&region=us"
+    class _Site2:
+        def __init__(self): self.got = []
+        def get(self, url, **_):
+            self.got.append(url)
+            if url.endswith("sitemap.xml"): return Resp(text=f"<loc>{u5}</loc><loc>  </loc><loc>{u6}</loc><loc>{u7}</loc>")
+            return Resp(text="<html>no structured data</html>") if url == u5 else Resp(text=_ld("Senior Controller"))
+    site = _Site2()
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    check(len(rows) == 3 and site.got[1:] == [u5, u7] and rows[2]["url"] == u7 and rows[2]["req"] == "R0000007",
+          f"sitemap: an empty <loc> is dropped, a second URL for a req whose page answered is not read, a raw & is left as it is ({site.got[1:]})")
+    check("1 of 3 untitled pages gave a title" in note and "1 more URLs for a req already read not read" in note
+          and "1 pages answered with no JSON-LD title" in note, f"sitemap: the note counts titles, skipped copies and pages without a title ({note})")
+    # a page whose JSON-LD identifier differs from the URL's id: the second locale is still not read
+    u8, u9 = "https://careers.example.com/jobdetails?id=R0000008_en", "https://careers.example.com/jobdetails?id=R0000008_en-us"
+    class _Site3:
+        def __init__(self): self.got = []
+        def get(self, url, **_):
+            self.got.append(url)
+            if url.endswith("sitemap.xml"): return Resp(text=f"<loc>{u8}</loc><loc>{u9}</loc>")
+            return Resp(text=_ld("Senior Controller").replace('"description"', '"identifier":{"value":"5551234"},"description"'))
+    site = _Site3()
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    check(site.got[1:] == [u8] and "1 lane rows read" in note and rows[0]["req"] == "5551234",
+          f"sitemap: the URL's req, not the page's identifier, stops a second locale's read ({site.got[1:]}, {note})")
+    check(js._xml_text("a&#38;b&#x26;c&amp;#38;d&region=e&#99999999999;") == "a&b&c&#38;d&region=e&#99999999999;",
+          "sitemap: numeric references decoded, each entity once, a raw & and an impossible reference left as they are")
+    check(js._xml_text("&lt;&gt;&quot;&apos;") == "<>\"'", "sitemap: XML's five entities are decoded")
+    wd99 = "".join(f"<loc>https://acme.wd1.myworkdayjobs.com/Acme_Jobs/job/Springfield-IL/Cost-Analyst_R{k:07d}</loc>" for k in range(99))
+    rows, note = js.sitemap("https://acme.wd1.myworkdayjobs.com/Acme_Jobs/siteMap.xml", _Site(wd99))
+    check(len(rows) == 99 and "may be cut" not in note, f"sitemap: a list of 99 Workday URLs is not flagged ({note[-120:]})")
+    # every page read counts against the cap: an untitled page read first leaves no read for a later lane row
+    site = _Site(f"<loc>{u2.replace('&', '&amp;')}</loc><loc>{u4}</loc>")
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=1, lane=ctl)
+    check(site.got[1:] == [u2] and "CAPPED at 1 page reads: 1 of 1 lane rows and 0 of 1 untitled pages not read" in note,
+          f"sitemap: an out-of-lane untitled read counts against the cap ({site.got[1:]}, {note})")
+    # a refused page does not mark its req as answered: the next locale's URL is read
+    u10, u11 = "https://careers.example.com/jobdetails?id=R0000010_en", "https://careers.example.com/jobdetails?id=R0000010_en-us"
+    site = _Site(f"<loc>{u10}</loc><loc>{u11}</loc>")
+    site.pages = {u11: _ld("Senior Controller")}
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    check(site.got[1:] == [u10, u11] and [r.get("unread") for r in rows] == ["YES", ""],
+          f"sitemap: a refused first locale leaves the second to be read ({site.got[1:]})")
+    # a wall: three refusals in a row end the reads
+    walled = [f"https://careers.example.com/jobdetails?id=R00000{k}_en" for k in range(20, 25)]
+    class _Wall:
+        def __init__(self): self.got = []
+        def get(self, url, **_):
+            self.got.append(url)
+            return Resp(text="".join(f"<loc>{u}</loc>" for u in walled)) if url.endswith("sitemap.xml") else Resp({}, 403)
+    site = _Wall()
+    rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    check(site.got[1:] == walled[:3] and "STOPPED: refused 3 times in a row" in note and "2 rows after it not read" in note,
+          f"sitemap: three refusals in a row stop the reads, flagged ({len(site.got) - 1} reads, {note})")
+    old_max = js.SITEMAP_UNTITLED_MAX
+    try:
+        js.SITEMAP_UNTITLED_MAX = 1
+        site = _Site(xml)
+        rows, note = js.sitemap("https://careers.example.com/sitemap.xml", site, cap=0, lane=ctl)
+    finally:
+        js.SITEMAP_UNTITLED_MAX = old_max
+    check(site.got[1:] == [u1, u4] and "2 untitled pages not read: at most 1 are read per sitemap, --cap 0 included" in note,
+          f"sitemap: untitled reads stop at their own bound under --cap 0, flagged ({site.got[1:]}, {note})")
 
     # ---- workday: stops, a missing total, a failure part-way, the detail path
     class WDbig:

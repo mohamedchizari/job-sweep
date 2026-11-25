@@ -69,7 +69,7 @@ are state codes. Add one only if you accept that.
 
 `--lane`: some lists carry no description, so the band and the clearance wording need one more
 request per posting. Workday and plain sitemaps are read that far only with `--lane`, and only for
-titles in the lane; without it their rows are counted in the enumeration and cannot pass. iCIMS and
+titles in the lane (a sitemap URL with no title in it has its page read for the title first); without it their rows are counted in the enumeration and cannot pass. iCIMS and
 Avature read every row's detail without `--lane`, and Eightfold the detail of every row that names
 a home place or a remote word; with it they read lane titles only. The SuccessFactors feed reads lane titles only, with or without the
 flag.
@@ -104,7 +104,7 @@ flag.
 | `avature` | slug or base URL | HTML result pages, then each job page: its JSON-LD, or its text when it has none. A board that links `FolderDetail` pages instead of `JobDetail` pages is read too. |
 | `successfactors_rss` | careers host | The site's RSS feed, then the job page for lane titles. |
 | `amazon` | `category\|query` | amazon.jobs search JSON, United States, up to 10,000 rows. |
-| `sitemap` | sitemap URL | A jobs sitemap whose URLs end `/<title-slug>/<id>/`, then the job page for lane titles. |
+| `sitemap` | sitemap URL | A jobs sitemap. The title comes from the URL: `/<title-slug>/<id>/`, Workday's `/job/<place>/<Title-Slug>_<req>`, the `/job/<req>/<Title-Slug>` of some Phenom sites and two more shapes (`_sitemap_slug_row`); a `jobdetails?id=<req>` URL carries none, and with `--lane` its page is read for it. Then the job page for lane titles. |
 | `unknown`, `unsupported`, `offlimits` | a note | Never fetched. The note is written under WALLS on every run, whatever `--only` and `--candidates` say. |
 
 ## Before you add an employer
@@ -179,7 +179,8 @@ own pages make.
   board a page is the step the scanner works out from the board's first page, see
   `docs/DESIGN.md` section 7), Eightfold at 5,000 rows,
   amazon.jobs at 10,000, and Phenom's main paging at 5,000 (its per-category fallback has no
-  bound). Each of these stops is flagged in that employer's note, and so is a
+  bound); a sitemap reads at most 2,000 pages for their titles and stops after three refusals in
+  a row. Each of these stops is flagged in that employer's note, and so is a
   Workday, Eightfold or amazon.jobs list that ends short of the total the service reported.
 - Routes change. An adapter that answered when this was written can be refused tomorrow, and the
   run will say so.
